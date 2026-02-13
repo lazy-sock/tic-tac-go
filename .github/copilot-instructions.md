@@ -57,3 +57,14 @@ Git workflow (commands)
   - Push a branch and set upstream: `git push -u origin feature/<name>`
   - Update main before merging: `git checkout main && git pull --rebase origin main`
 - Use descriptive commit messages and open PRs for review when collaborating.
+
+Commit message style
+- Keep commit messages mostly lower-case.
+- Start with a short verb (e.g., add, fix, update, docs).
+- Follow with a concise, precise description of the change.
+- Keep the subject line short (one line); put extra details in the commit body when needed.
+
+Examples
+- add ratatui TUI and dependencies
+- docs: add README with basic tic-tac-go rules
+- fix: center grid on screen
