@@ -1,0 +1,9 @@
+[package]
+name = "tic-tac-go"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Terminal UI
+crossterm = "0.26"
+ratatui = "0.20"
