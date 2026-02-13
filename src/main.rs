@@ -317,7 +317,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                 for col in 0..n {
                     if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
                         let is_player = idx == player_idx;
-                        let symbol = if is_player { "●" } else { "○" };
+                        let symbol = "o";
                         let style = if is_player { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::LightBlue) };
                         span_line.push(Span::raw(" "));
                         span_line.push(Span::styled(symbol.to_string(), style));
@@ -325,7 +325,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                     } else if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col) {
                         let style = Style::default().fg(Color::Red);
                         span_line.push(Span::raw(" "));
-                        span_line.push(Span::styled("✖".to_string(), style));
+                        span_line.push(Span::styled("x".to_string(), style));
                         span_line.push(Span::raw(" │"));
                     } else {
                         span_line.push(Span::raw("   │"));
