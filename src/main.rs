@@ -91,8 +91,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     }
 
     // BFS reachability: can circles reach a win without ever creating a losing cross-line?
-    fn reachable_win(circles_flat: &[usize], player_idx: usize, crosses_flat: &[usize], n: usize) -> bool {
-        use std::collections::VecDeque;
+    let reachable_win = |circles_flat: &[usize], player_idx: usize, crosses_flat: &[usize], n: usize| -> bool {
         // state: (player_pos, other_circles[2], crosses_vec)
         let mut q: VecDeque<(usize, [usize;2], Vec<usize>)> = VecDeque::new();
         let mut visited: HashSet<Vec<u8>> = HashSet::new();
@@ -185,7 +184,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
             }
         }
         false
-    }
+    };
 
     // Generate circles and crosses such that puzzle is solvable
     let mut rng = thread_rng();
@@ -196,7 +195,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     let mut crosses_flat: Vec<usize> = Vec::new();
     let mut player_idx: usize = 0;
 
-    'gen: loop {
+    loop {
         attempts += 1;
         circles_flat.clear(); crosses_flat.clear();
         let mut occupied = HashSet::new();
@@ -217,10 +216,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
         }
         // ensure crosses aren't immediately losing
         crosses_flat.sort_unstable();
-        if check_lose_flat(&crosses_flat, n) { if attempts >= max_attempts { break 'gen } else { continue 'gen } }
+        if check_lose_flat(&crosses_flat, n) { if attempts >= max_attempts { break } else { continue } }
         player_idx = rng.gen_range(0..3);
-        if reachable_win(&circles_flat, player_idx, &crosses_flat, n) { break 'gen }
-        if attempts >= max_attempts { break 'gen }
+        if reachable_win(&circles_flat, player_idx, &crosses_flat, n) { break }
+        if attempts >= max_attempts { break }
     }
 
     // fallback deterministic layout if generation failed
