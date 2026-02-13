@@ -37,76 +37,134 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
-    // Grid size
-    let n: usize = 7;
-    let default_grid_w: u16 = (4 * n + 1) as u16; // 4*n + 1 characters wide
-    let default_grid_h: u16 = (2 * n + 1) as u16; // 2*n + 1 lines tall
+    // Allow optional command-line args: either "ROWS COLS" or "RxC" (e.g. "5x6"). Default is 7x7.
+    let mut args = std::env::args().skip(1);
+    let mut rows: usize = 7;
+    let mut cols: usize = 7;
+    if let Some(a1) = args.next() {
+        if let Some(a2) = args.next() {
+            if let (Ok(r), Ok(c)) = (a1.parse::<usize>(), a2.parse::<usize>()) {
+                if r >= 1 && c >= 1 { rows = r; cols = c; }
+            }
+        } else if a1.contains('x') || a1.contains('X') {
+            let parts: Vec<&str> = a1.split(|ch| ch == 'x' || ch == 'X').collect();
+            if parts.len() == 2 {
+                if let (Ok(r), Ok(c)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
+                    if r >= 1 && c >= 1 { rows = r; cols = c; }
+                }
+            }
+        }
+    }
 
-    // Helpers for flat indices
-    let to_flat = |r: usize, c: usize| -> usize { r * n + c };
-    let from_flat = |idx: usize| -> (usize, usize) { (idx / n, idx % n) };
+    // Ensure at least 20 slots
+    if rows == 0 { rows = 1; }
+    if cols == 0 { cols = 1; }
+    if rows.saturating_mul(cols) < 20 {
+        cols = (20 + rows - 1) / rows; // increase cols to meet minimum slots
+    }
+
+    // Generate slight edge variation: per-row widths (remove cells from right edge only, no holes)
+    let mut rng = thread_rng();
+    let mut row_widths = vec![cols; rows];
+    let total_cells_initial = rows * cols;
+    let max_removable = if total_cells_initial > 20 { total_cells_initial - 20 } else { 0 };
+    let mut removable = if max_removable > 0 { rng.gen_range(0..=max_removable) } else { 0 };
+    // remove from last rows right side
+    let mut idx = rows;
+    while removable > 0 && idx > 0 {
+        idx -= 1;
+        let can_remove = row_widths[idx].saturating_sub(1);
+        let r = std::cmp::min(can_remove, removable);
+        row_widths[idx] = row_widths[idx].saturating_sub(r);
+        removable -= r;
+    }
+
+    // row offsets for flat indexing
+    let mut row_offsets = vec![0usize; rows];
+    for i in 1..rows { row_offsets[i] = row_offsets[i - 1] + row_widths[i - 1]; }
+    let total_cells = row_offsets[rows - 1] + row_widths[rows - 1];
+
+    let to_flat = |r: usize, c: usize| -> usize { row_offsets[r] + c };
+    let from_flat = |mut idx: usize| -> (usize, usize) {
+        let mut r = 0usize;
+        while r < rows {
+            let start = row_offsets[r];
+            let w = row_widths[r];
+            if idx < start + w { return (r, idx - start); }
+            r += 1;
+        }
+        panic!("invalid flat index {}", idx);
+    };
+
+    let default_grid_w: u16 = (4 * cols + 1) as u16; // use cols for layout width
+    let default_grid_h: u16 = (2 * rows + 1) as u16;
 
     // Check win for circles (three contiguous in row or column)
-    fn is_win_flat(positions: &[usize], n: usize) -> bool {
+    let is_win_flat = |positions: &[usize]| -> bool {
         if positions.len() < 3 { return false; }
-        // same row?
-        let r0 = positions[0] / n;
-        if positions.iter().all(|&p| p / n == r0) {
-            let mut cols: Vec<usize> = positions.iter().map(|&p| p % n).collect();
-            cols.sort_unstable();
-            if cols[1] == cols[0] + 1 && cols[2] == cols[1] + 1 { return true; }
+        use std::collections::HashMap;
+        let mut by_row: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut by_col: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &p in positions { let (r,c) = from_flat(p); by_row.entry(r).or_default().push(c); by_col.entry(c).or_default().push(r); }
+        for (_r, mut cols_vec) in by_row.into_iter() {
+            if cols_vec.len() < 3 { continue; }
+            cols_vec.sort_unstable();
+            for i in 0..cols_vec.len().saturating_sub(2) {
+                if cols_vec[i + 1] == cols_vec[i] + 1 && cols_vec[i + 2] == cols_vec[i + 1] + 1 { return true; }
+            }
         }
-        // same column?
-        let c0 = positions[0] % n;
-        if positions.iter().all(|&p| p % n == c0) {
-            let mut rows: Vec<usize> = positions.iter().map(|&p| p / n).collect();
-            rows.sort_unstable();
-            if rows[1] == rows[0] + 1 && rows[2] == rows[1] + 1 { return true; }
+        for (_c, mut rows_vec) in by_col.into_iter() {
+            if rows_vec.len() < 3 { continue; }
+            rows_vec.sort_unstable();
+            for i in 0..rows_vec.len().saturating_sub(2) {
+                if rows_vec[i + 1] == rows_vec[i] + 1 && rows_vec[i + 2] == rows_vec[i + 1] + 1 { return true; }
+            }
         }
         false
-    }
+    };
 
-    // Check lose condition: any three crosses contiguous in a row or column
-    fn check_lose_flat(crosses: &[usize], n: usize) -> bool {
+    // Check lose: any three crosses contiguous in row or column
+    let check_lose_flat = |crosses: &[usize]| -> bool {
         if crosses.len() < 3 { return false; }
-        // rows
-        for r in 0..n {
-            let mut cols: Vec<usize> = crosses.iter().filter(|&&p| p / n == r).map(|&p| p % n).collect();
-            if cols.len() < 3 { continue; }
-            cols.sort_unstable();
-            for i in 0..cols.len()-2 {
-                if cols[i+1] == cols[i] + 1 && cols[i+2] == cols[i+1] + 1 { return true; }
+        use std::collections::HashMap;
+        let mut by_row: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut by_col: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &p in crosses { let (r,c) = from_flat(p); by_row.entry(r).or_default().push(c); by_col.entry(c).or_default().push(r); }
+        for (_r, mut cols_vec) in by_row.into_iter() {
+            if cols_vec.len() < 3 { continue; }
+            cols_vec.sort_unstable();
+            for i in 0..cols_vec.len().saturating_sub(2) {
+                if cols_vec[i + 1] == cols_vec[i] + 1 && cols_vec[i + 2] == cols_vec[i + 1] + 1 { return true; }
             }
         }
-        // columns
-        for c in 0..n {
-            let mut rows: Vec<usize> = crosses.iter().filter(|&&p| p % n == c).map(|&p| p / n).collect();
-            if rows.len() < 3 { continue; }
-            rows.sort_unstable();
-            for i in 0..rows.len()-2 {
-                if rows[i+1] == rows[i] + 1 && rows[i+2] == rows[i+1] + 1 { return true; }
+        for (_c, mut rows_vec) in by_col.into_iter() {
+            if rows_vec.len() < 3 { continue; }
+            rows_vec.sort_unstable();
+            for i in 0..rows_vec.len().saturating_sub(2) {
+                if rows_vec[i + 1] == rows_vec[i] + 1 && rows_vec[i + 2] == rows_vec[i + 1] + 1 { return true; }
             }
         }
         false
-    }
+    };
 
     // BFS reachability: can circles reach a win without ever creating a losing cross-line?
-    let reachable_win = |circles_flat: &[usize], player_idx: usize, crosses_flat: &[usize], n: usize| -> bool {
+    let reachable_win = |circles_flat: &[usize], player_idx: usize, crosses_flat: &[usize]| -> bool {
+        use std::collections::VecDeque;
         // state: (player_pos, other_circles[2], crosses_vec)
-        let mut q: VecDeque<(usize, [usize;2], Vec<usize>)> = VecDeque::new();
-        let mut visited: HashSet<Vec<u8>> = HashSet::new();
+        let mut q: VecDeque<(usize, [usize; 2], Vec<usize>)> = VecDeque::new();
+        let mut visited: HashSet<Vec<u16>> = HashSet::new();
         let p0 = circles_flat[player_idx];
         let mut others = [circles_flat[(player_idx + 1) % 3], circles_flat[(player_idx + 2) % 3]];
-        if others[0] > others[1] { others.swap(0,1); }
+        if others[0] > others[1] { others.swap(0, 1); }
         let mut crosses = crosses_flat.to_vec();
         crosses.sort_unstable();
 
-        let encode = |p: usize, o: &[usize;2], x: &Vec<usize>| -> Vec<u8> {
+        let encode = |p: usize, o: &[usize; 2], x: &Vec<usize>| -> Vec<u16> {
             let mut key = Vec::with_capacity(3 + x.len());
-            key.push(p as u8);
-            key.push(o[0] as u8);
-            key.push(o[1] as u8);
-            for &xx in x { key.push(xx as u8); }
+            key.push(p as u16);
+            key.push(o[0] as u16);
+            key.push(o[1] as u16);
+            for &xx in x { key.push(xx as u16); }
             key
         };
 
@@ -121,14 +179,16 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
             nodes += 1;
             if nodes > max_nodes { return false; }
             let posv = vec![p, o[0], o[1]];
-            if is_win_flat(&posv, n) { return true; }
+            if is_win_flat(&posv) { return true; }
 
             // generate moves
-            for (dr, dc) in [(-1,0),(1,0),(0,-1),(0,1)] {
-                let pr = p / n; let pc = p % n;
+            for (dr, dc) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+                let (pr, pc) = from_flat(p);
                 let new_r_i = pr as isize + dr; let new_c_i = pc as isize + dc;
-                if new_r_i < 0 || new_c_i < 0 || new_r_i >= n as isize || new_c_i >= n as isize { continue; }
+                if new_r_i < 0 || new_c_i < 0 { continue; }
                 let new_r = new_r_i as usize; let new_c = new_c_i as usize;
+                if new_r >= rows { continue; }
+                if new_c >= row_widths[new_r] { continue; }
                 let p1 = to_flat(new_r, new_c);
 
                 // check if occupied by other circle
@@ -139,26 +199,32 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                 if let Some(other_idx) = occupied_by_circle {
                     // try push circle
                     let push_r_i = new_r_i + dr; let push_c_i = new_c_i + dc;
-                    if push_r_i < 0 || push_c_i < 0 || push_r_i >= n as isize || push_c_i >= n as isize { continue; }
-                    let push_r = push_r_i as usize; let push_c = push_c_i as usize; let p2 = to_flat(push_r, push_c);
+                    if push_r_i < 0 || push_c_i < 0 { continue; }
+                    let push_r = push_r_i as usize; let push_c = push_c_i as usize;
+                    if push_r >= rows { continue; }
+                    if push_c >= row_widths[push_r] { continue; }
+                    let p2 = to_flat(push_r, push_c);
                     // cannot push into another circle
                     if o[0] == p2 || o[1] == p2 { continue; }
                     // cannot push into a cross
                     if x.iter().any(|&xx| xx == p2) { continue; }
                     let mut new_o = o;
                     new_o[other_idx] = p2;
-                    if new_o[0] > new_o[1] { new_o.swap(0,1); }
+                    if new_o[0] > new_o[1] { new_o.swap(0, 1); }
                     let k = encode(p1, &new_o, &x);
                     if visited.contains(&k) { continue; }
                     // crosses unchanged; check losing crosses (unchanged)
-                    if check_lose_flat(&x, n) { continue; }
+                    if check_lose_flat(&x) { continue; }
                     visited.insert(k);
                     q.push_back((p1, new_o, x.clone()));
                 } else if let Some(cross_idx) = x.iter().position(|&xx| xx == p1) {
                     // try push cross
                     let push_r_i = new_r_i + dr; let push_c_i = new_c_i + dc;
-                    if push_r_i < 0 || push_c_i < 0 || push_r_i >= n as isize || push_c_i >= n as isize { continue; }
-                    let push_r = push_r_i as usize; let push_c = push_c_i as usize; let p2 = to_flat(push_r, push_c);
+                    if push_r_i < 0 || push_c_i < 0 { continue; }
+                    let push_r = push_r_i as usize; let push_c = push_c_i as usize;
+                    if push_r >= rows { continue; }
+                    if push_c >= row_widths[push_r] { continue; }
+                    let p2 = to_flat(push_r, push_c);
                     // cannot push into circle
                     if o[0] == p2 || o[1] == p2 || p == p2 { continue; }
                     // cannot push into another cross
@@ -167,7 +233,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                     new_x[cross_idx] = p2;
                     new_x.sort_unstable();
                     // if new crosses cause losing, skip
-                    if check_lose_flat(&new_x, n) { continue; }
+                    if check_lose_flat(&new_x) { continue; }
                     let k = encode(p1, &o, &new_x);
                     if visited.contains(&k) { continue; }
                     visited.insert(k);
@@ -177,7 +243,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                     let k = encode(p1, &o, &x);
                     if visited.contains(&k) { continue; }
                     // crosses unchanged; ensure not losing
-                    if check_lose_flat(&x, n) { continue; }
+                    if check_lose_flat(&x) { continue; }
                     visited.insert(k);
                     q.push_back((p1, o, x.clone()));
                 }
@@ -187,7 +253,6 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     };
 
     // Generate circles and crosses such that puzzle is solvable
-    let mut rng = thread_rng();
     let mut attempts = 0usize;
     let max_attempts = 2000usize;
 
@@ -201,42 +266,41 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
         let mut occupied = HashSet::new();
         // select 3 unique positions for circles
         while circles_flat.len() < 3 {
-            let r = rng.gen_range(0..n);
-            let c = rng.gen_range(0..n);
-            let f = to_flat(r,c);
+            let f = rng.gen_range(0..total_cells);
             if occupied.insert(f) { circles_flat.push(f); }
         }
         // select crosses
-        let cross_count = rng.gen_range(5..=10);
+        let mut cross_count = rng.gen_range(5..=10);
+        cross_count = std::cmp::min(cross_count, total_cells.saturating_sub(3));
         while crosses_flat.len() < cross_count {
-            let r = rng.gen_range(0..n);
-            let c = rng.gen_range(0..n);
-            let f = to_flat(r,c);
+            let f = rng.gen_range(0..total_cells);
             if occupied.insert(f) { crosses_flat.push(f); }
         }
         // ensure crosses aren't immediately losing
         crosses_flat.sort_unstable();
-        if check_lose_flat(&crosses_flat, n) { if attempts >= max_attempts { break } else { continue } }
+        if check_lose_flat(&crosses_flat) { if attempts >= max_attempts { break } else { continue } }
         player_idx = rng.gen_range(0..3);
-        if reachable_win(&circles_flat, player_idx, &crosses_flat, n) { break }
+        if reachable_win(&circles_flat, player_idx, &crosses_flat) { break }
         if attempts >= max_attempts { break }
     }
 
     // fallback deterministic layout if generation failed
     if circles_flat.is_empty() {
-        let center_row = n / 2;
-        circles_flat = vec![to_flat(center_row,2), to_flat(center_row,3), to_flat(center_row,4)];
+        let center_row = rows / 2;
+        let c2 = std::cmp::min(2, row_widths[center_row].saturating_sub(1));
+        let c3 = std::cmp::min(3, row_widths[center_row].saturating_sub(1));
+        let c4 = std::cmp::min(4, row_widths[center_row].saturating_sub(1));
+        circles_flat = vec![to_flat(center_row, c2), to_flat(center_row, c3), to_flat(center_row, c4)];
         player_idx = 1;
         crosses_flat = Vec::new();
         // scatter a few crosses that don't immediately lose
-        for r in 0..n {
-            for c in 0..n {
-                let f = to_flat(r,c);
+        'outer: for r in 0..rows {
+            for c in 0..row_widths[r] {
+                let f = to_flat(r, c);
                 if circles_flat.contains(&f) { continue; }
-                if crosses_flat.len() >= 5 { break; }
                 crosses_flat.push(f);
+                if crosses_flat.len() >= 5 { break 'outer; }
             }
-            if crosses_flat.len() >= 5 { break; }
         }
     }
 
@@ -245,17 +309,21 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     let mut crosses: Vec<(usize, usize)> = crosses_flat.iter().map(|&f| from_flat(f)).collect();
 
     // Helper to attempt movement during runtime (allows pushing a single object: circle or cross)
-    fn attempt_move_runtime(circles: &mut Vec<(usize, usize)>, crosses: &mut Vec<(usize, usize)>, player_idx: usize, dr: isize, dc: isize, n: usize) {
+    let attempt_move_runtime = |circles: &mut Vec<(usize, usize)>, crosses: &mut Vec<(usize, usize)>, player_idx: usize, dr: isize, dc: isize| {
         let (r, c) = circles[player_idx];
         let new_r_i = r as isize + dr; let new_c_i = c as isize + dc;
-        if new_r_i < 0 || new_c_i < 0 || new_r_i >= n as isize || new_c_i >= n as isize { return; }
+        if new_r_i < 0 || new_c_i < 0 { return; }
         let new_r = new_r_i as usize; let new_c = new_c_i as usize;
+        if new_r >= rows { return; }
+        if new_c >= row_widths[new_r] { return; }
         // occupied by circle?
         if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == new_r && cc == new_c) {
             // try push circle
             let push_r_i = new_r_i + dr; let push_c_i = new_c_i + dc;
-            if push_r_i < 0 || push_c_i < 0 || push_r_i >= n as isize || push_c_i >= n as isize { return; }
+            if push_r_i < 0 || push_c_i < 0 { return; }
             let push_r = push_r_i as usize; let push_c = push_c_i as usize;
+            if push_r >= rows { return; }
+            if push_c >= row_widths[push_r] { return; }
             if circles.iter().any(|&(rr, cc)| rr == push_r && cc == push_c) { return; }
             if crosses.iter().any(|&(rr, cc)| rr == push_r && cc == push_c) { return; }
             circles[idx] = (push_r, push_c);
@@ -265,8 +333,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
         // occupied by cross?
         if let Some(idx) = crosses.iter().position(|&(rr, cc)| rr == new_r && cc == new_c) {
             let push_r_i = new_r_i + dr; let push_c_i = new_c_i + dc;
-            if push_r_i < 0 || push_c_i < 0 || push_r_i >= n as isize || push_c_i >= n as isize { return; }
+            if push_r_i < 0 || push_c_i < 0 { return; }
             let push_r = push_r_i as usize; let push_c = push_c_i as usize;
+            if push_r >= rows { return; }
+            if push_c >= row_widths[push_r] { return; }
             if circles.iter().any(|&(rr, cc)| rr == push_r && cc == push_c) { return; }
             if crosses.iter().any(|&(rr, cc)| rr == push_r && cc == push_c) { return; }
             crosses[idx] = (push_r, push_c);
@@ -275,13 +345,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
         }
         // empty
         circles[player_idx] = (new_r, new_c);
-    }
+    };
 
     // initial win/lose checks
     let mut circles_flat_now: Vec<usize> = circles.iter().map(|&(r,c)| to_flat(r,c)).collect();
     let mut crosses_flat_now: Vec<usize> = crosses.iter().map(|&(r,c)| to_flat(r,c)).collect();
-    let mut won = is_win_flat(&circles_flat_now, n);
-    let mut lost = check_lose_flat(&crosses_flat_now, n);
+    let mut won = is_win_flat(&circles_flat_now);
+    let mut lost = check_lose_flat(&crosses_flat_now);
 
     loop {
         terminal.draw(|f| {
@@ -297,12 +367,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
 
             let mut lines: Vec<Spans> = Vec::new();
 
-            // Top border
+            // Top border (based on max cols)
             let mut top = String::new();
             top.push('┌');
-            for col in 0..n {
+            for col in 0..cols {
                 top.push_str("───");
-                if col != n - 1 {
+                if col != cols - 1 {
                     top.push('┬');
                 } else {
                     top.push('┐');
@@ -310,36 +380,43 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
             }
             lines.push(Spans::from(Span::raw(top)));
 
-            for row in 0..n {
+            for row in 0..rows {
                 // Content line with optional circles or crosses
                 let mut span_line: Vec<Span> = Vec::new();
                 span_line.push(Span::raw("│"));
-                for col in 0..n {
-                    if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
-                        let is_player = idx == player_idx;
-                        let symbol = "o";
-                        let style = if is_player { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::LightBlue) };
-                        span_line.push(Span::raw(" "));
-                        span_line.push(Span::styled(symbol.to_string(), style));
-                        span_line.push(Span::raw(" │"));
-                    } else if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col) {
-                        let style = Style::default().fg(Color::Red);
-                        span_line.push(Span::raw(" "));
-                        span_line.push(Span::styled("x".to_string(), style));
-                        span_line.push(Span::raw(" │"));
+                for col in 0..cols {
+                    if col < row_widths[row] {
+                        if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                            let is_player = idx == player_idx;
+                            let symbol = "o";
+                            let style = if is_player { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::LightBlue) };
+                            span_line.push(Span::raw(" "));
+                            span_line.push(Span::styled(symbol.to_string(), style));
+                            span_line.push(Span::raw(" │"));
+                            continue;
+                        }
+                        if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                            let style = Style::default().fg(Color::Red);
+                            span_line.push(Span::raw(" "));
+                            span_line.push(Span::styled("x".to_string(), style));
+                            span_line.push(Span::raw(" │"));
+                            continue;
+                        }
+                        span_line.push(Span::raw("   │"));
                     } else {
+                        // absent cell at edge: render empty space
                         span_line.push(Span::raw("   │"));
                     }
                 }
                 lines.push(Spans::from(span_line));
 
                 // Middle border or bottom
-                if row != n - 1 {
+                if row != rows - 1 {
                     let mut mid = String::new();
                     mid.push('├');
-                    for col in 0..n {
+                    for col in 0..cols {
                         mid.push_str("───");
-                        if col != n - 1 {
+                        if col != cols - 1 {
                             mid.push('┼');
                         } else {
                             mid.push('┤');
@@ -349,9 +426,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                 } else {
                     let mut bot = String::new();
                     bot.push('└');
-                    for col in 0..n {
+                    for col in 0..cols {
                         bot.push_str("───");
-                        if col != n - 1 {
+                        if col != cols - 1 {
                             bot.push('┴');
                         } else {
                             bot.push('┘');
@@ -407,16 +484,16 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                 match key.code {
                     KeyCode::Char(c) => match c.to_ascii_lowercase() {
                         'q' => break,
-                        'w' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, -1, 0, n) },
-                        'a' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, -1, n) },
-                        's' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 1, 0, n) },
-                        'd' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, 1, n) },
+                        'w' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, -1, 0) },
+                        'a' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, -1) },
+                        's' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 1, 0) },
+                        'd' => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, 1) },
                         _ => {}
                     },
-                    KeyCode::Up => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, -1, 0, n) },
-                    KeyCode::Left => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, -1, n) },
-                    KeyCode::Down => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 1, 0, n) },
-                    KeyCode::Right => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, 1, n) },
+                    KeyCode::Up => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, -1, 0) },
+                    KeyCode::Left => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, -1) },
+                    KeyCode::Down => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 1, 0) },
+                    KeyCode::Right => if !won && !lost { attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, 1) },
                     KeyCode::Esc => break,
                     _ => {}
                 }
@@ -424,9 +501,10 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
             // re-evaluate win/lose state after handling input
             circles_flat_now = circles.iter().map(|&(r,c)| to_flat(r,c)).collect();
             crosses_flat_now = crosses.iter().map(|&(r,c)| to_flat(r,c)).collect();
-            won = is_win_flat(&circles_flat_now, n);
-            lost = check_lose_flat(&crosses_flat_now, n);
+            won = is_win_flat(&circles_flat_now);
+            lost = check_lose_flat(&crosses_flat_now);
         }
     }
     Ok(())
 }
+
