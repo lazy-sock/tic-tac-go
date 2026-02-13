@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::io::{self, Stdout};
 use std::time::Duration;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use rand::{thread_rng, Rng};
 use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
@@ -42,21 +42,127 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     let default_grid_w: u16 = (4 * n + 1) as u16; // 4*n + 1 characters wide
     let default_grid_h: u16 = (2 * n + 1) as u16; // 2*n + 1 lines tall
 
-    // Generate three distinct circle positions (row, col)
+    // Helper: determine reachability of a win state via BFS considering push rules
+    fn reachable_win(initial_positions: &[(usize, usize)], player_idx: usize, n: usize) -> bool {
+        use std::collections::VecDeque;
+
+        // small helper to check win (three contiguous in same row or same column)
+        fn is_win(pos: &[(usize, usize)]) -> bool {
+            if pos.len() < 3 { return false; }
+            // row
+            if pos.iter().all(|&(r, _)| r == pos[0].0) {
+                let mut cols: Vec<usize> = pos.iter().map(|&(_, c)| c).collect();
+                cols.sort_unstable();
+                if cols[1] == cols[0] + 1 && cols[2] == cols[1] + 1 { return true; }
+            }
+            // column
+            if pos.iter().all(|&(_, c)| c == pos[0].1) {
+                let mut rows: Vec<usize> = pos.iter().map(|&(r, _)| r).collect();
+                rows.sort_unstable();
+                if rows[1] == rows[0] + 1 && rows[2] == rows[1] + 1 { return true; }
+            }
+            false
+        }
+
+        let mut q: VecDeque<((usize, usize), [(usize, usize); 2])> = VecDeque::new();
+        let mut visited: HashSet<u32> = HashSet::new();
+
+        let p0 = initial_positions[player_idx];
+        let mut others = [initial_positions[(player_idx + 1) % 3], initial_positions[(player_idx + 2) % 3]];
+        // canonicalize others order
+        let mut o0 = others[0].0 * n + others[0].1;
+        let mut o1 = others[1].0 * n + others[1].1;
+        if o0 > o1 { others.swap(0, 1); o0 = others[0].0 * n + others[0].1; o1 = others[1].0 * n + others[1].1; }
+
+        // encode state into u32: p(8 bits) | o0(8 bits) | o1(8 bits)
+        let encode = |p: (usize, usize), o: [(usize, usize); 2]| -> u32 {
+            let p_i = (p.0 * n + p.1) as u32;
+            let o0_i = (o[0].0 * n + o[0].1) as u32;
+            let o1_i = (o[1].0 * n + o[1].1) as u32;
+            (p_i << 16) | (o0_i << 8) | o1_i
+        };
+
+        let key = encode(p0, others);
+        visited.insert(key);
+        q.push_back((p0, others));
+
+        while let Some((p, o)) = q.pop_front() {
+            let positions_vec = vec![p, o[0], o[1]];
+            if is_win(&positions_vec) { return true; }
+
+            for (dr, dc) in [(-1,0),(1,0),(0,-1),(0,1)] {
+                let new_r_i = p.0 as isize + dr;
+                let new_c_i = p.1 as isize + dc;
+                if new_r_i < 0 || new_c_i < 0 || new_r_i >= n as isize || new_c_i >= n as isize { continue; }
+                let new_r = new_r_i as usize;
+                let new_c = new_c_i as usize;
+
+                // check if target is one of the others
+                if (o[0].0 == new_r && o[0].1 == new_c) || (o[1].0 == new_r && o[1].1 == new_c) {
+                    let other_idx = if o[0].0 == new_r && o[0].1 == new_c { 0 } else { 1 };
+                    let push_r_i = new_r_i + dr;
+                    let push_c_i = new_c_i + dc;
+                    if push_r_i < 0 || push_c_i < 0 || push_r_i >= n as isize || push_c_i >= n as isize { continue; }
+                    let push_r = push_r_i as usize;
+                    let push_c = push_c_i as usize;
+                    // cannot push into the other circle
+                    if (o[0].0 == push_r && o[0].1 == push_c) || (o[1].0 == push_r && o[1].1 == push_c) { continue; }
+                    // create new state with pushed circle
+                    let mut new_others = o;
+                    new_others[other_idx] = (push_r, push_c);
+                    // canonicalize
+                    let mut new_o0 = new_others[0].0 * n + new_others[0].1;
+                    let mut new_o1 = new_others[1].0 * n + new_others[1].1;
+                    if new_o0 > new_o1 { new_others.swap(0,1); new_o0 = new_others[0].0 * n + new_others[0].1; new_o1 = new_others[1].0 * n + new_others[1].1; }
+                    let new_key = encode((new_r, new_c), new_others);
+                    if !visited.contains(&new_key) {
+                        visited.insert(new_key);
+                        q.push_back(((new_r, new_c), new_others));
+                    }
+                } else {
+                    // empty target; move player
+                    let new_others = o;
+                    let mut new_o0 = new_others[0].0 * n + new_others[0].1;
+                    let mut new_o1 = new_others[1].0 * n + new_others[1].1;
+                    if new_o0 > new_o1 { let mut no = new_others; no.swap(0,1); let new_key = encode((new_r, new_c), no); if !visited.contains(&new_key) { visited.insert(new_key); q.push_back(((new_r, new_c), no)); } } else { let new_key = encode((new_r, new_c), new_others); if !visited.contains(&new_key) { visited.insert(new_key); q.push_back(((new_r, new_c), new_others)); } }
+                }
+            }
+        }
+        false
+    }
+
+    // Generate three distinct positions but ensure they are winnable
     let mut rng = thread_rng();
-    let mut occupied = HashSet::new();
-    let mut positions: Vec<(usize, usize)> = Vec::new();
-    while positions.len() < 3 {
-        let r = rng.gen_range(0..n);
-        let c = rng.gen_range(0..n);
-        if occupied.insert((r, c)) {
-            positions.push((r, c));
+    let mut attempts = 0;
+    let max_attempts = 2000;
+    let mut positions: Vec<(usize, usize)>;
+    let mut player_idx: usize;
+    loop {
+        attempts += 1;
+        let mut occupied = HashSet::new();
+        positions = Vec::new();
+        while positions.len() < 3 {
+            let r = rng.gen_range(0..n);
+            let c = rng.gen_range(0..n);
+            if occupied.insert((r, c)) {
+                positions.push((r, c));
+            }
+        }
+        player_idx = rng.gen_range(0..positions.len());
+        if reachable_win(&positions, player_idx, n) {
+            break;
+        }
+        if attempts >= max_attempts {
+            // deterministic fallback: place on center row contiguous
+            positions.clear();
+            let center_row = n / 2;
+            positions.push((center_row, 2));
+            positions.push((center_row, 3));
+            positions.push((center_row, 4));
+            player_idx = 1; // middle as player
+            break;
         }
     }
-    // Choose one circle to be the player
-    let player_idx = rng.gen_range(0..positions.len());
-
-    // Helper: check win (three circles in the same row or same column, contiguous)
     fn check_win(positions: &[(usize, usize)]) -> bool {
         if positions.len() < 3 {
             return false;
