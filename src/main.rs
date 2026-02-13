@@ -37,31 +37,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
-    // Allow optional command-line args: either "ROWS COLS" or "RxC" (e.g. "5x6"). Default is 7x7.
-    let mut args = std::env::args().skip(1);
-    let mut rows: usize = 7;
-    let mut cols: usize = 7;
-    if let Some(a1) = args.next() {
-        if let Some(a2) = args.next() {
-            if let (Ok(r), Ok(c)) = (a1.parse::<usize>(), a2.parse::<usize>()) {
-                if r >= 1 && c >= 1 { rows = r; cols = c; }
-            }
-        } else if a1.contains('x') || a1.contains('X') {
-            let parts: Vec<&str> = a1.split(|ch| ch == 'x' || ch == 'X').collect();
-            if parts.len() == 2 {
-                if let (Ok(r), Ok(c)) = (parts[0].parse::<usize>(), parts[1].parse::<usize>()) {
-                    if r >= 1 && c >= 1 { rows = r; cols = c; }
-                }
-            }
-        }
-    }
-
-    // Ensure at least 20 slots
-    if rows == 0 { rows = 1; }
-    if cols == 0 { cols = 1; }
-    if rows.saturating_mul(cols) < 20 {
-        cols = (20 + rows - 1) / rows; // increase cols to meet minimum slots
-    }
+    // Automatically choose a random rectangular board size (no CLI options). Ensure at least 20 slots.
+    let mut rng = thread_rng();
+    // choose rows between 3 and 8
+    let rows: usize = rng.gen_range(3..=8);
+    // choose columns so rows*cols >= 20, allow some variation
+    let min_cols = (20 + rows - 1) / rows;
+    let max_cols = min_cols + 8;
+    let cols: usize = rng.gen_range(min_cols..=max_cols);
 
     // Generate slight edge variation: per-row widths (remove cells from right edge only, no holes)
     let mut rng = thread_rng();
