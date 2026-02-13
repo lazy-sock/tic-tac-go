@@ -57,17 +57,41 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     let player_idx = rng.gen_range(0..positions.len());
 
     // Helper to attempt movement: dr/dc are -1/0/1
+    // This handles pushing a single adjacent circle if the cell beyond it is free.
     fn attempt_move(positions: &mut Vec<(usize, usize)>, player_idx: usize, dr: isize, dc: isize, n: usize) {
         let (r, c) = positions[player_idx];
         let new_r_i = r as isize + dr;
         let new_c_i = c as isize + dc;
+        // check bounds for the player's move
         if new_r_i < 0 || new_c_i < 0 || new_r_i >= n as isize || new_c_i >= n as isize {
             return;
         }
         let new_r = new_r_i as usize;
         let new_c = new_c_i as usize;
-        let blocked = positions.iter().enumerate().any(|(i, &p)| i != player_idx && p == (new_r, new_c));
-        if !blocked {
+
+        // If target cell is empty, simply move the player
+        if !positions.iter().any(|&(rr, cc)| rr == new_r && cc == new_c) {
+            positions[player_idx] = (new_r, new_c);
+            return;
+        }
+
+        // Otherwise, there's a circle to push. Find its index.
+        if let Some(other_idx) = positions.iter().position(|&(rr, cc)| rr == new_r && cc == new_c) {
+            // compute push target for the other circle
+            let push_r_i = new_r_i + dr;
+            let push_c_i = new_c_i + dc;
+            // cannot push out of bounds
+            if push_r_i < 0 || push_c_i < 0 || push_r_i >= n as isize || push_c_i >= n as isize {
+                return;
+            }
+            let push_r = push_r_i as usize;
+            let push_c = push_c_i as usize;
+            // if the push target is occupied, refuse the move (can't push two circles)
+            if positions.iter().any(|&(rr, cc)| rr == push_r && cc == push_c) {
+                return;
+            }
+            // perform the push: move the other circle, then move the player
+            positions[other_idx] = (push_r, push_c);
             positions[player_idx] = (new_r, new_c);
         }
     }
