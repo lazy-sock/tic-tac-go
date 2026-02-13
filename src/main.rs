@@ -56,6 +56,22 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     // Choose one circle to be the player
     let player_idx = rng.gen_range(0..positions.len());
 
+    // Helper to attempt movement: dr/dc are -1/0/1
+    fn attempt_move(positions: &mut Vec<(usize, usize)>, player_idx: usize, dr: isize, dc: isize, n: usize) {
+        let (r, c) = positions[player_idx];
+        let new_r_i = r as isize + dr;
+        let new_c_i = c as isize + dc;
+        if new_r_i < 0 || new_c_i < 0 || new_r_i >= n as isize || new_c_i >= n as isize {
+            return;
+        }
+        let new_r = new_r_i as usize;
+        let new_c = new_c_i as usize;
+        let blocked = positions.iter().enumerate().any(|(i, &p)| i != player_idx && p == (new_r, new_c));
+        if !blocked {
+            positions[player_idx] = (new_r, new_c);
+        }
+    }
+
     loop {
         terminal.draw(|f| {
             let size = f.size();
@@ -133,11 +149,24 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
             f.render_widget(paragraph, area);
         })?;
 
-        // Exit on 'q' or Esc
-        if event::poll(Duration::from_millis(200))? {
+        // Input handling: arrows and WASD. movement blocked by walls and other circles
+        if event::poll(Duration::from_millis(150))? {
             if let Event::Key(key) = event::read()? {
-                if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
-                    break;
+                match key.code {
+                    KeyCode::Char(c) => match c.to_ascii_lowercase() {
+                        'q' => break,
+                        'w' => attempt_move(&mut positions, player_idx, -1, 0, n),
+                        'a' => attempt_move(&mut positions, player_idx, 0, -1, n),
+                        's' => attempt_move(&mut positions, player_idx, 1, 0, n),
+                        'd' => attempt_move(&mut positions, player_idx, 0, 1, n),
+                        _ => {}
+                    },
+                    KeyCode::Up => attempt_move(&mut positions, player_idx, -1, 0, n),
+                    KeyCode::Left => attempt_move(&mut positions, player_idx, 0, -1, n),
+                    KeyCode::Down => attempt_move(&mut positions, player_idx, 1, 0, n),
+                    KeyCode::Right => attempt_move(&mut positions, player_idx, 0, 1, n),
+                    KeyCode::Esc => break,
+                    _ => {}
                 }
             }
         }
