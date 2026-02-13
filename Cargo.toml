@@ -7,3 +7,4 @@ edition = "2024"
 # Terminal UI
 crossterm = "0.26"
 ratatui = "0.20"
+rand = "0.8"
