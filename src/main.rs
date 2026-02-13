@@ -11,7 +11,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScree
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::text::{Span, Spans};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Borders};
 use ratatui::Terminal;
 use ratatui::style::{Color, Style, Modifier};
 
@@ -56,6 +56,30 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
     // Choose one circle to be the player
     let player_idx = rng.gen_range(0..positions.len());
 
+    // Helper: check win (three circles in the same row or same column, contiguous)
+    fn check_win(positions: &[(usize, usize)]) -> bool {
+        if positions.len() < 3 {
+            return false;
+        }
+        // row win
+        if positions.iter().all(|&(r, _)| r == positions[0].0) {
+            let mut cols: Vec<usize> = positions.iter().map(|&(_, c)| c).collect();
+            cols.sort_unstable();
+            if cols[1] == cols[0] + 1 && cols[2] == cols[1] + 1 {
+                return true;
+            }
+        }
+        // column win
+        if positions.iter().all(|&(_, c)| c == positions[0].1) {
+            let mut rows: Vec<usize> = positions.iter().map(|&(r, _)| r).collect();
+            rows.sort_unstable();
+            if rows[1] == rows[0] + 1 && rows[2] == rows[1] + 1 {
+                return true;
+            }
+        }
+        false
+    }
+
     // Helper to attempt movement: dr/dc are -1/0/1
     // This handles pushing a single adjacent circle if the cell beyond it is free.
     fn attempt_move(positions: &mut Vec<(usize, usize)>, player_idx: usize, dr: isize, dc: isize, n: usize) {
@@ -95,6 +119,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
             positions[player_idx] = (new_r, new_c);
         }
     }
+
+    // initial win check
+    let mut won = check_win(&positions);
 
     loop {
         terminal.draw(|f| {
@@ -171,6 +198,24 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
 
             let paragraph = Paragraph::new(lines).block(Block::default());
             f.render_widget(paragraph, area);
+
+            // If won, render an overlay message centered on screen
+            if won {
+                let overlay_w = std::cmp::min(30, size.width.saturating_sub(4));
+                let overlay_h = 5u16;
+                let ox = (size.width.saturating_sub(overlay_w)) / 2;
+                let oy = (size.height.saturating_sub(overlay_h)) / 2;
+                let o_area = Rect::new(ox, oy, overlay_w, overlay_h);
+
+                let mut msg_lines: Vec<Spans> = Vec::new();
+                msg_lines.push(Spans::from(Span::raw("")));
+                msg_lines.push(Spans::from(Span::styled(" YOU WON! ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD))));
+                msg_lines.push(Spans::from(Span::raw("")));
+                msg_lines.push(Spans::from(Span::styled("press q to quit", Style::default().fg(Color::White))));
+
+                let overlay = Paragraph::new(msg_lines).block(Block::default().borders(Borders::ALL).title("Victory"));
+                f.render_widget(overlay, o_area);
+            }
         })?;
 
         // Input handling: arrows and WASD. movement blocked by walls and other circles
@@ -179,20 +224,22 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<
                 match key.code {
                     KeyCode::Char(c) => match c.to_ascii_lowercase() {
                         'q' => break,
-                        'w' => attempt_move(&mut positions, player_idx, -1, 0, n),
-                        'a' => attempt_move(&mut positions, player_idx, 0, -1, n),
-                        's' => attempt_move(&mut positions, player_idx, 1, 0, n),
-                        'd' => attempt_move(&mut positions, player_idx, 0, 1, n),
+                        'w' => if !won { attempt_move(&mut positions, player_idx, -1, 0, n) },
+                        'a' => if !won { attempt_move(&mut positions, player_idx, 0, -1, n) },
+                        's' => if !won { attempt_move(&mut positions, player_idx, 1, 0, n) },
+                        'd' => if !won { attempt_move(&mut positions, player_idx, 0, 1, n) },
                         _ => {}
                     },
-                    KeyCode::Up => attempt_move(&mut positions, player_idx, -1, 0, n),
-                    KeyCode::Left => attempt_move(&mut positions, player_idx, 0, -1, n),
-                    KeyCode::Down => attempt_move(&mut positions, player_idx, 1, 0, n),
-                    KeyCode::Right => attempt_move(&mut positions, player_idx, 0, 1, n),
+                    KeyCode::Up => if !won { attempt_move(&mut positions, player_idx, -1, 0, n) },
+                    KeyCode::Left => if !won { attempt_move(&mut positions, player_idx, 0, -1, n) },
+                    KeyCode::Down => if !won { attempt_move(&mut positions, player_idx, 1, 0, n) },
+                    KeyCode::Right => if !won { attempt_move(&mut positions, player_idx, 0, 1, n) },
                     KeyCode::Esc => break,
                     _ => {}
                 }
             }
+            // re-evaluate win state after handling input
+            won = check_win(&positions);
         }
     }
     Ok(())
