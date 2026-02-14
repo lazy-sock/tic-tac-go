@@ -17,6 +17,12 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
+mod board;
+mod rules;
+mod generator;
+mod movement;
+mod game;
+
 fn main() -> Result<(), Box<dyn Error>> {
     // Setup terminal
     enable_raw_mode()?;
@@ -25,7 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = run_app(&mut terminal);
+    let res = game::run_app(&mut terminal);
 
     // Restore terminal
     disable_raw_mode()?;
