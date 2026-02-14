@@ -19,19 +19,7 @@ impl Board {
         let max_cols = min_cols + 8;
         let cols: usize = rng.gen_range(min_cols..=max_cols);
 
-        let mut rng = thread_rng();
         let mut row_widths = vec![cols; rows];
-        let total_cells_initial = rows * cols;
-        let max_removable = if total_cells_initial > 20 { total_cells_initial - 20 } else { 0 };
-        let mut removable = if max_removable > 0 { rng.gen_range(0..=max_removable) } else { 0 };
-        let mut idx = rows;
-        while removable > 0 && idx > 0 {
-            idx -= 1;
-            let can_remove = row_widths[idx].saturating_sub(1);
-            let r = std::cmp::min(can_remove, removable);
-            row_widths[idx] = row_widths[idx].saturating_sub(r);
-            removable -= r;
-        }
 
         let mut row_offsets = vec![0usize; rows];
         for i in 1..rows {
