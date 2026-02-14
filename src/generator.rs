@@ -1,6 +1,6 @@
 // Puzzle generation using forward-scramble (sokoban-style)
 use crate::board::Board;
-use crate::rules::{check_lose_flat, is_win_flat};
+use crate::rules::{check_lose_flat, is_win_flat, check_cross_deadlock};
 use rand::{Rng, thread_rng};
 use rand::seq::SliceRandom;
 use std::collections::HashSet;
@@ -66,8 +66,9 @@ pub fn generate_puzzle(board: &Board) -> (Vec<usize>, Vec<usize>, usize) {
 
         let crosses_flat_init: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
         if check_lose_flat(&crosses_flat_init, board) { if attempts >= max_attempts { break; } else { continue; } }
+        if check_cross_deadlock(&crosses_flat_init, board) { if attempts >= max_attempts { break; } else { continue; } }
 
-        // scramble by making random valid moves from the winning state
+        // scramble by making random valid moves from the winning state (reverse pushes)
         let steps_target = rng.gen_range(40..=200);
         let dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
         let mut moves_made = 0usize;
@@ -80,7 +81,7 @@ pub fn generate_puzzle(board: &Board) -> (Vec<usize>, Vec<usize>, usize) {
             let pre_cir: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
             let pre_cross: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
 
-            crate::movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, dr, dc, board);
+            crate::movement::attempt_move_reverse(&mut circles, &mut crosses, player_idx, dr, dc, board);
 
             let post_cir: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
             let post_cross: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
@@ -97,6 +98,22 @@ pub fn generate_puzzle(board: &Board) -> (Vec<usize>, Vec<usize>, usize) {
         // avoid trivial already-won or losing puzzles
         if is_win_flat(&final_circles_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
         if check_lose_flat(&final_crosses_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
+        if check_cross_deadlock(&final_crosses_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
+
+        // ensure player has at least one legal move (can't be completely stuck)
+        let mut has_move = false;
+        let test_dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+        for &(dr, dc) in test_dirs.iter() {
+            let mut test_circles = circles.clone();
+            let mut test_crosses = crosses.clone();
+            let pre_cir: Vec<usize> = test_circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let pre_cross: Vec<usize> = test_crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            crate::movement::attempt_move_runtime(&mut test_circles, &mut test_crosses, player_idx, dr, dc, board);
+            let post_cir: Vec<usize> = test_circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let post_cross: Vec<usize> = test_crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            if pre_cir != post_cir || pre_cross != post_cross { has_move = true; break; }
+        }
+        if !has_move { if attempts >= max_attempts { break; } else { continue; } }
 
         circles_flat = final_circles_flat;
         crosses_flat = final_crosses_flat;
