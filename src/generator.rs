@@ -1,46 +1,107 @@
-// Puzzle generation
+// Puzzle generation using forward-scramble (sokoban-style)
 use crate::board::Board;
-use crate::rules::{check_lose_flat, reachable_win};
+use crate::rules::{check_lose_flat, is_win_flat};
 use rand::{Rng, thread_rng};
+use rand::seq::SliceRandom;
 use std::collections::HashSet;
 
 pub fn generate_puzzle(board: &Board) -> (Vec<usize>, Vec<usize>, usize) {
+    let mut rng = thread_rng();
+    let total_cells = board.total_cells;
     let mut attempts = 0usize;
     let max_attempts = 2000usize;
+
     let mut circles_flat: Vec<usize> = Vec::new();
     let mut crosses_flat: Vec<usize> = Vec::new();
     let mut player_idx: usize = 0;
-    let total_cells = board.total_cells;
-    let mut rng = thread_rng();
 
     loop {
         attempts += 1;
-        circles_flat.clear();
-        crosses_flat.clear();
-        let mut occupied = HashSet::new();
-        while circles_flat.len() < 3 {
-            let f = rng.gen_range(0..total_cells);
-            if occupied.insert(f) {
-                circles_flat.push(f);
-            }
+
+        // choose orientation and starting winning triple
+        let horizontal = rng.gen_bool(0.5);
+        let mut circles: Vec<(usize, usize)> = Vec::new();
+
+        if horizontal {
+            // pick a row with width >= 3
+            let valid_rows: Vec<usize> = (0..board.rows).filter(|&r| board.row_widths[r] >= 3).collect();
+            if valid_rows.is_empty() { if attempts >= max_attempts { break; } else { continue; } }
+            let row = *valid_rows.choose(&mut rng).unwrap();
+            let max_start = board.row_widths[row].saturating_sub(3);
+            let start_col = rng.gen_range(0..=max_start);
+            circles.push((row, start_col));
+            circles.push((row, start_col + 1));
+            circles.push((row, start_col + 2));
+        } else {
+            if board.rows < 3 { if attempts >= max_attempts { break; } else { continue; } }
+            let start_row = rng.gen_range(0..=board.rows - 3);
+            let min_width = board.row_widths[start_row..start_row + 3].iter().cloned().min().unwrap_or(0);
+            if min_width == 0 { if attempts >= max_attempts { break; } else { continue; } }
+            let col = rng.gen_range(0..min_width);
+            circles.push((start_row, col));
+            circles.push((start_row + 1, col));
+            circles.push((start_row + 2, col));
         }
+
+        // choose player index
+        player_idx = rng.gen_range(0..3);
+
+        // place crosses randomly (avoid overlapping circles)
+        let mut occupied: HashSet<usize> = HashSet::new();
+        for &(r, c) in &circles { occupied.insert(board.to_flat(r, c)); }
+
+        let mut crosses: Vec<(usize, usize)> = Vec::new();
         let mut cross_count = rng.gen_range(5..=10);
         cross_count = std::cmp::min(cross_count, total_cells.saturating_sub(3));
-        while crosses_flat.len() < cross_count {
+
+        let mut place_tries = 0usize;
+        while crosses.len() < cross_count && place_tries < total_cells * 3 {
+            place_tries += 1;
             let f = rng.gen_range(0..total_cells);
             if occupied.insert(f) {
-                crosses_flat.push(f);
+                crosses.push(board.from_flat(f));
             }
         }
-        crosses_flat.sort_unstable();
-        if check_lose_flat(&crosses_flat, board) {
-            if attempts >= max_attempts { break; } else { continue; }
+        if crosses.len() < cross_count { if attempts >= max_attempts { break; } else { continue; } }
+
+        let crosses_flat_init: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        if check_lose_flat(&crosses_flat_init, board) { if attempts >= max_attempts { break; } else { continue; } }
+
+        // scramble by making random valid moves from the winning state
+        let steps_target = rng.gen_range(40..=200);
+        let dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+        let mut moves_made = 0usize;
+        let mut inner_tries = 0usize;
+
+        while moves_made < steps_target && inner_tries < steps_target * 10 {
+            inner_tries += 1;
+            let (dr, dc) = dirs[rng.gen_range(0..4)];
+
+            let pre_cir: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let pre_cross: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+
+            crate::movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, dr, dc, board);
+
+            let post_cir: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let post_cross: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+
+            if pre_cir != post_cir || pre_cross != post_cross {
+                moves_made += 1;
+            }
         }
-        player_idx = rng.gen_range(0..3);
-        if reachable_win(&circles_flat, player_idx, &crosses_flat, board) {
-            break;
-        }
-        if attempts >= max_attempts { break; }
+
+        let final_circles_flat: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        let mut final_crosses_flat: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        final_crosses_flat.sort_unstable();
+
+        // avoid trivial already-won or losing puzzles
+        if is_win_flat(&final_circles_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
+        if check_lose_flat(&final_crosses_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
+
+        circles_flat = final_circles_flat;
+        crosses_flat = final_crosses_flat;
+
+        break;
     }
 
     (circles_flat, crosses_flat, player_idx)
