@@ -98,6 +98,176 @@ fn solve_min_moves(
     None
 }
 
+pub fn generate_puzzle_constructive(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Vec<usize>, usize) {
+    // Deterministic constructive generator (reverse-construction + greedy placement)
+    // Returns empty vectors if it cannot produce a candidate quickly so caller may fall back.
+    let total_cells = board.total_cells;
+    let mut circles_flat: Vec<usize> = Vec::new();
+    let mut crosses_flat: Vec<usize> = Vec::new();
+    let mut player_idx: usize = 0;
+
+    // enumerate possible winning triples deterministically
+    let mut triples: Vec<Vec<(usize, usize)>> = Vec::new();
+    for r in 0..board.rows {
+        if board.row_widths[r] < 3 { continue; }
+        for c in 0..=board.row_widths[r].saturating_sub(3) {
+            if board.is_cell_present(r, c) && board.is_cell_present(r, c + 1) && board.is_cell_present(r, c + 2) {
+                triples.push(vec![(r, c), (r, c + 1), (r, c + 2)]);
+            }
+        }
+    }
+    if board.rows >= 3 {
+        for r in 0..=board.rows - 3 {
+            let min_w = board.row_widths[r..r + 3].iter().cloned().min().unwrap_or(0);
+            if min_w == 0 { continue; }
+            for c in 0..min_w {
+                if board.is_cell_present(r, c) && board.is_cell_present(r + 1, c) && board.is_cell_present(r + 2, c) {
+                    triples.push(vec![(r, c), (r + 1, c), (r + 2, c)]);
+                }
+            }
+        }
+    }
+
+    if triples.is_empty() { return (circles_flat, crosses_flat, player_idx); }
+
+    // deterministic ordering to avoid excessive randomness
+    triples.sort_by_key(|tri| (tri[0].0, tri[0].1));
+
+    // difficulty parameters
+    let (min_cross, _max_cross, min_steps, _max_steps) = match difficulty {
+        Difficulty::Easy => (3usize, 6usize, 20usize, 60usize),
+        Difficulty::Medium => (5usize, 10usize, 40usize, 200usize),
+        Difficulty::Hard => (8usize, 14usize, 100usize, 400usize),
+    };
+
+    // Greedy attempt over triples
+    for chosen in triples.iter() {
+        let mut circles: Vec<(usize, usize)> = chosen.clone();
+        player_idx = 1; // center of triple
+
+        // available flat indices (present and not occupied by circles)
+        let occupied_by_circles: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        let mut available: Vec<usize> = (0..total_cells)
+            .filter(|&i| board.cells[i] && !occupied_by_circles.contains(&i))
+            .collect();
+        if available.len() < min_cross { continue; }
+
+        // sort available by Manhattan distance descending from triple center
+        let center = circles[1];
+        available.sort_by_key(|&f| {
+            let (r, c) = board.from_flat(f);
+            let d = ((r as isize - center.0 as isize).abs() + (c as isize - center.1 as isize).abs()) as usize;
+            std::usize::MAX - d
+        });
+
+        // greedy selection of crosses avoiding immediate losing / deadlock
+        let mut crosses: Vec<(usize, usize)> = Vec::new();
+        for &f in available.iter() {
+            if crosses.len() >= min_cross { break; }
+            crosses.push(board.from_flat(f));
+            let cross_flat_tmp: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            if check_lose_flat(&cross_flat_tmp, board) || check_cross_deadlock(&cross_flat_tmp, board) {
+                crosses.pop();
+                continue;
+            }
+        }
+        if crosses.len() < min_cross { continue; }
+
+        // reverse-construction: perform deterministic pull moves with light backtracking
+        let steps_target = min_steps;
+        let dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+        let mut moves_made = 0usize;
+        let mut undo_stack: Vec<(Vec<(usize, usize)>, Vec<(usize, usize)>)> = Vec::new();
+        let mut visited_states: HashSet<String> = HashSet::new();
+
+        // mark initial state visited
+        let cir_flat0: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        let mut crs_flat0: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        crs_flat0.sort_unstable();
+        visited_states.insert(format!("{}:{:?}:{:?}", player_idx, cir_flat0, crs_flat0));
+
+        let mut inner_iters = 0usize;
+        let max_inner = steps_target * 10 + 200;
+        while moves_made < steps_target && inner_iters < max_inner {
+            inner_iters += 1;
+            let mut progressed = false;
+            for &(dr, dc) in dirs.iter() {
+                let pre_cir = circles.clone();
+                let pre_cross = crosses.clone();
+                crate::movement::attempt_move_reverse(&mut circles, &mut crosses, player_idx, dr, dc, board);
+                if pre_cir == circles && pre_cross == crosses { continue; }
+
+                let post_cross_flat: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+                if check_lose_flat(&post_cross_flat, board) || check_cross_deadlock(&post_cross_flat, board) {
+                    circles = pre_cir; crosses = pre_cross; continue;
+                }
+
+                let cir_flat: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+                let mut cross_sorted = post_cross_flat.clone();
+                cross_sorted.sort_unstable();
+                let key = format!("{}:{:?}:{:?}", player_idx, cir_flat, cross_sorted);
+                if visited_states.contains(&key) { circles = pre_cir; crosses = pre_cross; continue; }
+
+                visited_states.insert(key);
+                undo_stack.push((pre_cir, pre_cross));
+                moves_made += 1;
+                progressed = true;
+                break;
+            }
+            if !progressed {
+                if let Some((pc, pr)) = undo_stack.pop() {
+                    circles = pc; crosses = pr; if moves_made > 0 { moves_made -= 1; }
+                } else { break; }
+            }
+        }
+
+        if moves_made < steps_target { continue; }
+
+        let final_circles_flat: Vec<usize> = circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        let mut final_crosses_flat: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+        final_crosses_flat.sort_unstable();
+
+        // quick difficulty filter using lightweight solver
+        let (max_nodes_check, min_moves_threshold) = match difficulty {
+            Difficulty::Easy => (10_000usize, 6usize),
+            Difficulty::Medium => (50_000usize, 20usize),
+            Difficulty::Hard => (200_000usize, 60usize),
+        };
+        match solve_min_moves(board, &final_circles_flat, &final_crosses_flat, player_idx, max_nodes_check, 400) {
+            Some(depth) => { if depth < min_moves_threshold { continue; } }
+            None => { if matches!(difficulty, Difficulty::Easy) { continue; } }
+        }
+
+        if is_win_flat(&final_circles_flat, board) { continue; }
+        if check_lose_flat(&final_crosses_flat, board) { continue; }
+        if check_cross_deadlock(&final_crosses_flat, board) { continue; }
+
+        // ensure player has at least one safe legal move
+        let mut has_safe_move = false;
+        for &(dr, dc) in dirs.iter() {
+            let mut test_circles = circles.clone();
+            let mut test_crosses = crosses.clone();
+            let pre_cir: Vec<usize> = test_circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let pre_cross: Vec<usize> = test_crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            crate::movement::attempt_move_runtime(&mut test_circles, &mut test_crosses, player_idx, dr, dc, board);
+            let post_cir: Vec<usize> = test_circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let post_cross: Vec<usize> = test_crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            if post_cir == pre_cir && post_cross == pre_cross { continue; }
+            if check_lose_flat(&post_cross, board) { continue; }
+            if check_cross_deadlock(&post_cross, board) { continue; }
+            has_safe_move = true; break;
+        }
+        if !has_safe_move { continue; }
+
+        circles_flat = final_circles_flat;
+        crosses_flat = final_crosses_flat;
+        return (circles_flat, crosses_flat, player_idx);
+    }
+
+    // fallback: return empty to let caller use the original sampler if desired
+    (Vec::new(), Vec::new(), 0)
+}
+
 pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Vec<usize>, usize) {
     let mut rng = thread_rng();
     let total_cells = board.total_cells;

@@ -31,7 +31,7 @@ pub fn run_app(
 
     // Generate puzzle
     let (mut circles_flat, mut crosses_flat, mut player_idx) =
-        generator::generate_puzzle(&board, difficulty);
+        generator::generate_puzzle_constructive(&board, difficulty);
 
     // fallback deterministic layout if generation failed
     if circles_flat.is_empty() {
