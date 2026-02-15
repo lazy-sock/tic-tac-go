@@ -1,6 +1,6 @@
 // Game rules and search helpers
 use crate::board::Board;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 pub fn is_win_flat(positions: &[usize], board: &Board) -> bool {
     if positions.len() < 3 {
@@ -94,13 +94,11 @@ pub fn check_cross_deadlock(crosses: &[usize], board: &Board) -> bool {
             && r + 1 < board.rows
             && c < board.row_widths[r + 1]
             && c + 1 < board.row_widths[r + 1]
+            && set.contains(&(r, c + 1))
+            && set.contains(&(r + 1, c))
+            && set.contains(&(r + 1, c + 1))
         {
-            if set.contains(&(r, c + 1))
-                && set.contains(&(r + 1, c))
-                && set.contains(&(r + 1, c + 1))
-            {
-                return true;
-            }
+            return true;
         }
     }
 
