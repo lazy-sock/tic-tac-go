@@ -25,30 +25,36 @@ pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Ve
     loop {
         attempts += 1;
 
-        // choose orientation and starting winning triple
-        let horizontal = rng.gen_bool(0.5);
-        let mut circles: Vec<(usize, usize)> = Vec::new();
-
-        if horizontal {
-            // pick a row with width >= 3
-            let valid_rows: Vec<usize> = (0..board.rows).filter(|&r| board.row_widths[r] >= 3).collect();
-            if valid_rows.is_empty() { if attempts >= max_attempts { break; } else { continue; } }
-            let row = *valid_rows.choose(&mut rng).unwrap();
-            let max_start = board.row_widths[row].saturating_sub(3);
-            let start_col = rng.gen_range(0..=max_start);
-            circles.push((row, start_col));
-            circles.push((row, start_col + 1));
-            circles.push((row, start_col + 2));
-        } else {
-            if board.rows < 3 { if attempts >= max_attempts { break; } else { continue; } }
-            let start_row = rng.gen_range(0..=board.rows - 3);
-            let min_width = board.row_widths[start_row..start_row + 3].iter().cloned().min().unwrap_or(0);
-            if min_width == 0 { if attempts >= max_attempts { break; } else { continue; } }
-            let col = rng.gen_range(0..min_width);
-            circles.push((start_row, col));
-            circles.push((start_row + 1, col));
-            circles.push((start_row + 2, col));
+        // enumerate all possible winning triples (horizontal and vertical) on present cells
+        let mut triples: Vec<Vec<(usize, usize)>> = Vec::new();
+        // horizontal
+        for r in 0..board.rows {
+            if board.row_widths[r] < 3 { continue; }
+            for c in 0..=board.row_widths[r].saturating_sub(3) {
+                if board.is_cell_present(r, c) && board.is_cell_present(r, c + 1) && board.is_cell_present(r, c + 2) {
+                    triples.push(vec![(r, c), (r, c + 1), (r, c + 2)]);
+                }
+            }
         }
+        // vertical
+        if board.rows >= 3 {
+            for r in 0..=board.rows - 3 {
+                let min_w = board.row_widths[r..r + 3].iter().cloned().min().unwrap_or(0);
+                if min_w == 0 { continue; }
+                for c in 0..min_w {
+                    if board.is_cell_present(r, c) && board.is_cell_present(r + 1, c) && board.is_cell_present(r + 2, c) {
+                        triples.push(vec![(r, c), (r + 1, c), (r + 2, c)]);
+                    }
+                }
+            }
+        }
+
+        if triples.is_empty() {
+            if attempts >= max_attempts { break; } else { continue; }
+        }
+
+        let chosen = triples.choose(&mut rng).unwrap();
+        let mut circles: Vec<(usize, usize)> = chosen.clone();
 
         // choose player index
         player_idx = rng.gen_range(0..3);
@@ -57,7 +63,6 @@ pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Ve
         let mut occupied: HashSet<usize> = HashSet::new();
         for &(r, c) in &circles { occupied.insert(board.to_flat(r, c)); }
 
-        let mut crosses: Vec<(usize, usize)> = Vec::new();
         let (min_cross, max_cross, min_steps, max_steps) = match difficulty {
             Difficulty::Easy => (3usize, 6usize, 20usize, 60usize),
             Difficulty::Medium => (5usize, 10usize, 40usize, 200usize),
@@ -66,15 +71,17 @@ pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Ve
         let mut cross_count = rng.gen_range(min_cross..=max_cross);
         cross_count = std::cmp::min(cross_count, total_cells.saturating_sub(3));
 
-        let mut place_tries = 0usize;
-        while crosses.len() < cross_count && place_tries < total_cells * 3 {
-            place_tries += 1;
-            let f = rng.gen_range(0..total_cells);
-            if occupied.insert(f) {
-                crosses.push(board.from_flat(f));
-            }
+        // build list of available flat indices (present cells and not occupied)
+        let mut available: Vec<usize> = (0..total_cells)
+            .filter(|&i| board.cells[i] && !occupied.contains(&i))
+            .collect();
+        if available.len() < cross_count {
+            if attempts >= max_attempts { break; } else { continue; }
         }
-        if crosses.len() < cross_count { if attempts >= max_attempts { break; } else { continue; } }
+        available.shuffle(&mut rng);
+
+        let crosses_indices: Vec<usize> = available.into_iter().take(cross_count).collect();
+        let mut crosses: Vec<(usize, usize)> = crosses_indices.iter().map(|&f| board.from_flat(f)).collect();
 
         let crosses_flat_init: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
         if check_lose_flat(&crosses_flat_init, board) { if attempts >= max_attempts { break; } else { continue; } }

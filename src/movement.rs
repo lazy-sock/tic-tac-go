@@ -32,13 +32,13 @@ pub fn attempt_move_runtime(
     let destination_row_i = player_row as isize + direction_row;
     let destination_column_i = player_column as isize + direction_column;
 
-    // destination must be within board bounds
+    // destination must be within board bounds and present
     if destination_row_i < 0 || destination_column_i < 0 {
         return;
     }
     let destination_row = destination_row_i as usize;
     let destination_column = destination_column_i as usize;
-    if destination_row >= board.rows || destination_column >= board.row_widths[destination_row] {
+    if destination_row >= board.rows || destination_column >= board.row_widths[destination_row] || !board.is_cell_present(destination_row, destination_column) {
         return;
     }
 
@@ -52,7 +52,7 @@ pub fn attempt_move_runtime(
         }
         let push_row = push_row_i as usize;
         let push_column = push_column_i as usize;
-        if push_row >= board.rows || push_column >= board.row_widths[push_row] {
+        if push_row >= board.rows || push_column >= board.row_widths[push_row] || !board.is_cell_present(push_row, push_column) {
             return;
         }
         if occupied_any(circles, crosses, push_row, push_column) {
@@ -74,7 +74,7 @@ pub fn attempt_move_runtime(
         }
         let push_row = push_row_i as usize;
         let push_column = push_column_i as usize;
-        if push_row >= board.rows || push_column >= board.row_widths[push_row] {
+        if push_row >= board.rows || push_column >= board.row_widths[push_row] || !board.is_cell_present(push_row, push_column) {
             return;
         }
         if occupied_any(circles, crosses, push_row, push_column) {
@@ -111,13 +111,13 @@ pub fn attempt_move_reverse(
     let forward_row_i = player_row as isize + dr;
     let forward_column_i = player_column as isize + dc;
 
-    // forward must be valid
+    // forward must be valid and present
     if forward_row_i < 0 || forward_column_i < 0 {
         return;
     }
     let forward_row = forward_row_i as usize;
     let forward_column = forward_column_i as usize;
-    if forward_row >= board.rows || forward_column >= board.row_widths[forward_row] {
+    if forward_row >= board.rows || forward_column >= board.row_widths[forward_row] || !board.is_cell_present(forward_row, forward_column) {
         return;
     }
 
@@ -125,7 +125,7 @@ pub fn attempt_move_reverse(
     if source_row_i >= 0 && source_column_i >= 0 {
         let source_row = source_row_i as usize;
         let source_column = source_column_i as usize;
-        if source_row < board.rows && source_column < board.row_widths[source_row] {
+        if source_row < board.rows && source_column < board.row_widths[source_row] && board.is_cell_present(source_row, source_column) {
             // forward cell must be free to pull
             if occupied_any(circles, crosses, forward_row, forward_column) {
                 return;

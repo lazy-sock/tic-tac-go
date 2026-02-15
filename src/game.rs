@@ -92,80 +92,81 @@ pub fn run_app(
 
             let mut lines: Vec<Spans> = Vec::new();
 
-            // Top border (based on max cols)
+            // Top border (aggressive removal): horizontal dashes only where top cell exists
             let mut top = String::new();
-            top.push('┌');
-            for col in 0..cols {
-                top.push_str("───");
-                if col != cols - 1 {
-                    top.push('┬');
-                } else {
-                    top.push('┐');
+            if rows > 0 {
+                for col in 0..cols {
+                    let present = col < row_widths[0] && board.is_cell_present(0, col);
+                    if present {
+                        top.push_str("─── ");
+                    } else {
+                        top.push_str("    ");
+                    }
                 }
+            } else {
+                for _ in 0..cols { top.push_str("    "); }
             }
             lines.push(Spans::from(Span::raw(top)));
 
             for row in 0..rows {
-                // Content line with optional circles or crosses
+                // Content line: draw only internal vertical separators between adjacent present cells
                 let mut span_line: Vec<Span> = Vec::new();
-                span_line.push(Span::raw("│"));
                 for col in 0..cols {
-                    if col < row_widths[row] {
-                        if let Some(idx) =
-                            circles.iter().position(|&(rr, cc)| rr == row && cc == col)
-                        {
-                            let is_player = idx == player_idx;
-                            let symbol = "o";
-                            let style = if is_player {
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD)
-                            } else {
-                                Style::default().fg(Color::LightBlue)
-                            };
-                            span_line.push(Span::raw(" "));
-                            span_line.push(Span::styled(symbol.to_string(), style));
-                            span_line.push(Span::raw(" │"));
-                            continue;
-                        }
-                        if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col)
-                        {
-                            let style = Style::default().fg(Color::Red);
-                            span_line.push(Span::raw(" "));
-                            span_line.push(Span::styled("x".to_string(), style));
-                            span_line.push(Span::raw(" │"));
-                            continue;
-                        }
-                        span_line.push(Span::raw("   │"));
-                    } else {
-                        // absent cell at edge: render empty space
-                        span_line.push(Span::raw("   │"));
+                    let present = col < row_widths[row] && board.is_cell_present(row, col);
+                    if !present {
+                        // missing cell: reserve full cell width
+                        span_line.push(Span::raw("    "));
+                        continue;
                     }
+                    let next_present = (col + 1) < row_widths[row] && board.is_cell_present(row, col + 1);
+
+                    if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                        let is_player = idx == player_idx;
+                        let symbol = "o";
+                        let style = if is_player {
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::LightBlue)
+                        };
+                        span_line.push(Span::raw(" "));
+                        span_line.push(Span::styled(symbol.to_string(), style));
+                        span_line.push(Span::raw(if next_present { " │" } else { "  " }));
+                        continue;
+                    }
+                    if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                        let style = Style::default().fg(Color::Red);
+                        span_line.push(Span::raw(" "));
+                        span_line.push(Span::styled("x".to_string(), style));
+                        span_line.push(Span::raw(if next_present { " │" } else { "  " }));
+                        continue;
+                    }
+
+                    // empty present cell
+                    span_line.push(Span::raw(if next_present { "   │" } else { "    " }));
                 }
                 lines.push(Spans::from(span_line));
 
-                // Middle border or bottom
+                // Middle border or bottom - draw horizontal only where both rows have present cell (more aggressive)
                 if row != rows - 1 {
                     let mut mid = String::new();
-                    mid.push('├');
                     for col in 0..cols {
-                        mid.push_str("───");
-                        if col != cols - 1 {
-                            mid.push('┼');
+                        let top_here = col < row_widths[row] && board.is_cell_present(row, col);
+                        let bottom_here = col < row_widths[row + 1] && board.is_cell_present(row + 1, col);
+                        if top_here && bottom_here {
+                            mid.push_str("─── ");
                         } else {
-                            mid.push('┤');
+                            mid.push_str("    ");
                         }
                     }
                     lines.push(Spans::from(Span::raw(mid)));
                 } else {
                     let mut bot = String::new();
-                    bot.push('└');
                     for col in 0..cols {
-                        bot.push_str("───");
-                        if col != cols - 1 {
-                            bot.push('┴');
+                        let bot_seg = col < row_widths[row] && board.is_cell_present(row, col);
+                        if bot_seg {
+                            bot.push_str("─── ");
                         } else {
-                            bot.push('┘');
+                            bot.push_str("    ");
                         }
                     }
                     lines.push(Spans::from(Span::raw(bot)));
