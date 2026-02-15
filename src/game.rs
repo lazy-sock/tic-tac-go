@@ -5,17 +5,20 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Rect, Alignment};
+use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::board::Board;
-use crate::rules::{is_win_flat, check_lose_flat};
 use crate::generator;
 use crate::movement;
+use crate::rules::{check_lose_flat, is_win_flat};
 
-pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: generator::Difficulty) -> Result<(), Box<dyn Error>> {
+pub fn run_app(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    difficulty: generator::Difficulty,
+) -> Result<(), Box<dyn Error>> {
     // Create board and helpers
     let board = Board::random();
     let rows = board.rows;
@@ -27,7 +30,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
     let default_grid_h = board.default_grid_h;
 
     // Generate puzzle
-    let (mut circles_flat, mut crosses_flat, mut player_idx) = generator::generate_puzzle(&board, difficulty);
+    let (mut circles_flat, mut crosses_flat, mut player_idx) =
+        generator::generate_puzzle(&board, difficulty);
 
     // fallback deterministic layout if generation failed
     if circles_flat.is_empty() {
@@ -35,15 +39,23 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
         let c2 = std::cmp::min(2, row_widths[center_row].saturating_sub(1));
         let c3 = std::cmp::min(3, row_widths[center_row].saturating_sub(1));
         let c4 = std::cmp::min(4, row_widths[center_row].saturating_sub(1));
-        circles_flat = vec![to_flat(center_row, c2), to_flat(center_row, c3), to_flat(center_row, c4)];
+        circles_flat = vec![
+            to_flat(center_row, c2),
+            to_flat(center_row, c3),
+            to_flat(center_row, c4),
+        ];
         player_idx = 1;
         crosses_flat = Vec::new();
         'outer: for r in 0..rows {
             for c in 0..row_widths[r] {
                 let f = to_flat(r, c);
-                if circles_flat.contains(&f) { continue; }
+                if circles_flat.contains(&f) {
+                    continue;
+                }
                 crosses_flat.push(f);
-                if crosses_flat.len() >= 5 { break 'outer; }
+                if crosses_flat.len() >= 5 {
+                    break 'outer;
+                }
             }
         }
     }
@@ -63,8 +75,16 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
             let size = f.size();
 
             // ensure grid fits terminal
-            let grid_w = if default_grid_w + 2 > size.width { size.width.saturating_sub(2) } else { default_grid_w };
-            let grid_h = if default_grid_h + 2 > size.height { size.height.saturating_sub(2) } else { default_grid_h };
+            let grid_w = if default_grid_w + 2 > size.width {
+                size.width.saturating_sub(2)
+            } else {
+                default_grid_w
+            };
+            let grid_h = if default_grid_h + 2 > size.height {
+                size.height.saturating_sub(2)
+            } else {
+                default_grid_h
+            };
 
             let x = (size.width.saturating_sub(grid_w)) / 2;
             let y = (size.height.saturating_sub(grid_h)) / 2;
@@ -91,11 +111,15 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
                 span_line.push(Span::raw("│"));
                 for col in 0..cols {
                     if col < row_widths[row] {
-                        if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                        if let Some(idx) =
+                            circles.iter().position(|&(rr, cc)| rr == row && cc == col)
+                        {
                             let is_player = idx == player_idx;
                             let symbol = "o";
                             let style = if is_player {
-                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                                Style::default()
+                                    .fg(Color::Yellow)
+                                    .add_modifier(Modifier::BOLD)
                             } else {
                                 Style::default().fg(Color::LightBlue)
                             };
@@ -104,7 +128,8 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
                             span_line.push(Span::raw(" │"));
                             continue;
                         }
-                        if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                        if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col)
+                        {
                             let style = Style::default().fg(Color::Red);
                             span_line.push(Span::raw(" "));
                             span_line.push(Span::styled("x".to_string(), style));
@@ -157,7 +182,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
                 generator::Difficulty::Hard => "Hard",
             };
             let diff_text = format!("Difficulty: {}", diff_label);
-            let diff_lines = vec![Spans::from(Span::styled(diff_text, Style::default().fg(Color::White)))];
+            let diff_lines = vec![Spans::from(Span::styled(
+                diff_text,
+                Style::default().fg(Color::White),
+            ))];
             let diff_y = y.saturating_add(grid_h);
             if diff_y < size.height {
                 let diff_area = Rect::new(x, diff_y, grid_w, 1);
@@ -176,13 +204,21 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
                 let mut msg_lines: Vec<Spans> = Vec::new();
                 msg_lines.push(Spans::from(Span::raw("")));
                 msg_lines.push(Spans::from(Span::styled(
-                    " 🎉 YOU WON! 🎉 ",
-                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD),
+                    " YOU WON! ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 msg_lines.push(Spans::from(Span::raw("")));
-                msg_lines.push(Spans::from(Span::styled("press q to quit", Style::default().fg(Color::White))));
+                msg_lines.push(Spans::from(Span::styled(
+                    "press q to quit",
+                    Style::default().fg(Color::White),
+                )));
 
-                let overlay = Paragraph::new(msg_lines).style(Style::default().bg(Color::Black)).block(Block::default().borders(Borders::ALL).title("Victory"));
+                let overlay = Paragraph::new(msg_lines)
+                    .style(Style::default().bg(Color::Black))
+                    .block(Block::default().borders(Borders::ALL).title("Victory"));
                 f.render_widget(overlay, o_area);
             }
 
@@ -198,12 +234,20 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
                 msg_lines.push(Spans::from(Span::raw("")));
                 msg_lines.push(Spans::from(Span::styled(
                     " YOU LOST! three crosses aligned ",
-                    Style::default().fg(Color::White).bg(Color::Red).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 msg_lines.push(Spans::from(Span::raw("")));
-                msg_lines.push(Spans::from(Span::styled("press q to quit", Style::default().fg(Color::White))));
+                msg_lines.push(Spans::from(Span::styled(
+                    "press q to quit",
+                    Style::default().fg(Color::White),
+                )));
 
-                let overlay = Paragraph::new(msg_lines).style(Style::default().bg(Color::Black)).block(Block::default().borders(Borders::ALL).title("Defeat"));
+                let overlay = Paragraph::new(msg_lines)
+                    .style(Style::default().bg(Color::Black))
+                    .block(Block::default().borders(Borders::ALL).title("Defeat"));
                 f.render_widget(overlay, o_area);
             }
         })?;
@@ -214,16 +258,104 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: ge
                 match key.code {
                     KeyCode::Char(c) => match c.to_ascii_lowercase() {
                         'q' => break,
-                        'w' => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, -1, 0, &board) } },
-                        'a' => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, -1, &board) } },
-                        's' => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, 1, 0, &board) } },
-                        'd' => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, 1, &board) } },
+                        'w' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    -1,
+                                    0,
+                                    &board,
+                                )
+                            }
+                        }
+                        'a' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    0,
+                                    -1,
+                                    &board,
+                                )
+                            }
+                        }
+                        's' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    1,
+                                    0,
+                                    &board,
+                                )
+                            }
+                        }
+                        'd' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    0,
+                                    1,
+                                    &board,
+                                )
+                            }
+                        }
                         _ => {}
                     },
-                    KeyCode::Up => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, -1, 0, &board) } },
-                    KeyCode::Left => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, -1, &board) } },
-                    KeyCode::Down => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, 1, 0, &board) } },
-                    KeyCode::Right => { if !won && !lost { movement::attempt_move_runtime(&mut circles, &mut crosses, player_idx, 0, 1, &board) } },
+                    KeyCode::Up => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                -1,
+                                0,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Left => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                0,
+                                -1,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Down => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                1,
+                                0,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Right => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                0,
+                                1,
+                                &board,
+                            )
+                        }
+                    }
                     KeyCode::Esc => break,
                     _ => {}
                 }
