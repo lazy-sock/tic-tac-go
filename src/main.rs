@@ -1,8 +1,8 @@
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use std::env;
 use std::error::Error;
 use std::io::{self};
-use std::env;
-use rand::thread_rng;
-use rand::seq::SliceRandom;
 
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
@@ -32,26 +32,23 @@ fn main() -> Result<(), Box<dyn Error>> {
                         "easy" => Some(crate::generator::Difficulty::Easy),
                         "medium" => Some(crate::generator::Difficulty::Medium),
                         "hard" => Some(crate::generator::Difficulty::Hard),
-                        _ => { eprintln!("unknown difficulty: {}", val); None }
+                        _ => {
+                            eprintln!("unknown difficulty: {}", val);
+                            None
+                        }
                     };
                     break;
                 }
-            } else if arg.starts_with("--difficulty=") {
-                let val = arg.splitn(2, '=').nth(1).unwrap().to_string();
+            } else if arg.starts_with("--difficulty=") || arg.starts_with("-d=") {
+                let val = arg.split_once('=').unwrap().1;
                 parsed = match val.to_lowercase().as_str() {
                     "easy" => Some(crate::generator::Difficulty::Easy),
                     "medium" => Some(crate::generator::Difficulty::Medium),
                     "hard" => Some(crate::generator::Difficulty::Hard),
-                    _ => { eprintln!("unknown difficulty: {}", val); None }
-                };
-                break;
-            } else if arg.starts_with("-d=") {
-                let val = arg.splitn(2, '=').nth(1).unwrap().to_string();
-                parsed = match val.to_lowercase().as_str() {
-                    "easy" => Some(crate::generator::Difficulty::Easy),
-                    "medium" => Some(crate::generator::Difficulty::Medium),
-                    "hard" => Some(crate::generator::Difficulty::Hard),
-                    _ => { eprintln!("unknown difficulty: {}", val); None }
+                    _ => {
+                        eprintln!("unknown difficulty: {}", val);
+                        None
+                    }
                 };
                 break;
             }
@@ -60,7 +57,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             d
         } else {
             let mut rng = thread_rng();
-            *[crate::generator::Difficulty::Easy, crate::generator::Difficulty::Medium, crate::generator::Difficulty::Hard].choose(&mut rng).unwrap()
+            *[
+                crate::generator::Difficulty::Easy,
+                crate::generator::Difficulty::Medium,
+                crate::generator::Difficulty::Hard,
+            ]
+            .choose(&mut rng)
+            .unwrap()
         }
     };
     enable_raw_mode()?;
