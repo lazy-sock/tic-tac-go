@@ -5,7 +5,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::Rect;
+use ratatui::layout::{Rect, Alignment};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
 use ratatui::widgets::{Block, Borders, Paragraph};
@@ -15,7 +15,7 @@ use crate::rules::{is_win_flat, check_lose_flat};
 use crate::generator;
 use crate::movement;
 
-pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
+pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>, difficulty: generator::Difficulty) -> Result<(), Box<dyn Error>> {
     // Create board and helpers
     let board = Board::random();
     let rows = board.rows;
@@ -27,7 +27,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), 
     let default_grid_h = board.default_grid_h;
 
     // Generate puzzle
-    let (mut circles_flat, mut crosses_flat, mut player_idx) = generator::generate_puzzle(&board);
+    let (mut circles_flat, mut crosses_flat, mut player_idx) = generator::generate_puzzle(&board, difficulty);
 
     // fallback deterministic layout if generation failed
     if circles_flat.is_empty() {
@@ -150,6 +150,21 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), 
             let paragraph = Paragraph::new(lines).block(Block::default());
             f.render_widget(paragraph, area);
 
+            // Render difficulty centered under the board
+            let diff_label = match difficulty {
+                generator::Difficulty::Easy => "Easy",
+                generator::Difficulty::Medium => "Medium",
+                generator::Difficulty::Hard => "Hard",
+            };
+            let diff_text = format!("Difficulty: {}", diff_label);
+            let diff_lines = vec![Spans::from(Span::styled(diff_text, Style::default().fg(Color::White)))];
+            let diff_y = y.saturating_add(grid_h);
+            if diff_y < size.height {
+                let diff_area = Rect::new(x, diff_y, grid_w, 1);
+                let diff_para = Paragraph::new(diff_lines).alignment(Alignment::Center);
+                f.render_widget(diff_para, diff_area);
+            }
+
             // If won, render an overlay message centered on screen
             if won {
                 let overlay_w = std::cmp::min(36, size.width.saturating_sub(4));
@@ -167,7 +182,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), 
                 msg_lines.push(Spans::from(Span::raw("")));
                 msg_lines.push(Spans::from(Span::styled("press q to quit", Style::default().fg(Color::White))));
 
-                let overlay = Paragraph::new(msg_lines).block(Block::default().borders(Borders::ALL).title("Victory"));
+                let overlay = Paragraph::new(msg_lines).style(Style::default().bg(Color::Black)).block(Block::default().borders(Borders::ALL).title("Victory"));
                 f.render_widget(overlay, o_area);
             }
 
@@ -176,7 +191,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), 
                 let overlay_w = std::cmp::min(36, size.width.saturating_sub(4));
                 let overlay_h = 5u16;
                 let ox = (size.width.saturating_sub(overlay_w)) / 2;
-                let oy = (size.height.saturating_sub(overlay_h)) / 2 + 6;
+                let oy = (size.height.saturating_sub(overlay_h)) / 2;
                 let o_area = Rect::new(ox, oy, overlay_w, overlay_h);
 
                 let mut msg_lines: Vec<Spans> = Vec::new();
@@ -188,7 +203,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), 
                 msg_lines.push(Spans::from(Span::raw("")));
                 msg_lines.push(Spans::from(Span::styled("press q to quit", Style::default().fg(Color::White))));
 
-                let overlay = Paragraph::new(msg_lines).block(Block::default().borders(Borders::ALL).title("Defeat"));
+                let overlay = Paragraph::new(msg_lines).style(Style::default().bg(Color::Black)).block(Block::default().borders(Borders::ALL).title("Defeat"));
                 f.render_widget(overlay, o_area);
             }
         })?;

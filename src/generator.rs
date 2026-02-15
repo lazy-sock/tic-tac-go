@@ -5,7 +5,14 @@ use rand::{Rng, thread_rng};
 use rand::seq::SliceRandom;
 use std::collections::HashSet;
 
-pub fn generate_puzzle(board: &Board) -> (Vec<usize>, Vec<usize>, usize) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Difficulty {
+    Easy,
+    Medium,
+    Hard,
+}
+
+pub fn generate_puzzle(board: &Board, _difficulty: Difficulty) -> (Vec<usize>, Vec<usize>, usize) {
     let mut rng = thread_rng();
     let total_cells = board.total_cells;
     let mut attempts = 0usize;
