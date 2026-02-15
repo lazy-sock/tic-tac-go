@@ -12,7 +12,7 @@ pub enum Difficulty {
     Hard,
 }
 
-pub fn generate_puzzle(board: &Board, _difficulty: Difficulty) -> (Vec<usize>, Vec<usize>, usize) {
+pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Vec<usize>, usize) {
     let mut rng = thread_rng();
     let total_cells = board.total_cells;
     let mut attempts = 0usize;
@@ -58,7 +58,12 @@ pub fn generate_puzzle(board: &Board, _difficulty: Difficulty) -> (Vec<usize>, V
         for &(r, c) in &circles { occupied.insert(board.to_flat(r, c)); }
 
         let mut crosses: Vec<(usize, usize)> = Vec::new();
-        let mut cross_count = rng.gen_range(5..=10);
+        let (min_cross, max_cross, min_steps, max_steps) = match difficulty {
+            Difficulty::Easy => (3usize, 6usize, 20usize, 60usize),
+            Difficulty::Medium => (5usize, 10usize, 40usize, 200usize),
+            Difficulty::Hard => (8usize, 14usize, 100usize, 400usize),
+        };
+        let mut cross_count = rng.gen_range(min_cross..=max_cross);
         cross_count = std::cmp::min(cross_count, total_cells.saturating_sub(3));
 
         let mut place_tries = 0usize;
@@ -76,7 +81,7 @@ pub fn generate_puzzle(board: &Board, _difficulty: Difficulty) -> (Vec<usize>, V
         if check_cross_deadlock(&crosses_flat_init, board) { if attempts >= max_attempts { break; } else { continue; } }
 
         // scramble by making random valid moves from the winning state (reverse pushes)
-        let steps_target = rng.gen_range(40..=200);
+        let steps_target = rng.gen_range(min_steps..=max_steps);
         let dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
         let mut moves_made = 0usize;
         let mut inner_tries = 0usize;
