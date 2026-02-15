@@ -217,6 +217,7 @@ pub fn run_app(
                 )));
 
                 let overlay = Paragraph::new(msg_lines)
+                    .alignment(Alignment::Center)
                     .style(Style::default().bg(Color::Black))
                     .block(Block::default().borders(Borders::ALL).title("Victory").style(Style::default().bg(Color::Black)));
                 f.render_widget(Clear, o_area);
@@ -248,6 +249,7 @@ pub fn run_app(
                 )));
 
                 let overlay = Paragraph::new(msg_lines)
+                    .alignment(Alignment::Center)
                     .style(Style::default().bg(Color::Black))
                     .block(Block::default().borders(Borders::ALL).title("Defeat").style(Style::default().bg(Color::Black)));
                 f.render_widget(Clear, o_area);
