@@ -3,13 +3,99 @@ use crate::board::Board;
 use crate::rules::{check_lose_flat, is_win_flat, check_cross_deadlock};
 use rand::{Rng, thread_rng};
 use rand::seq::SliceRandom;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Difficulty {
     Easy,
     Medium,
     Hard,
+}
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct SolverState {
+    player: usize,
+    circles: Vec<usize>,
+    crosses: Vec<usize>,
+}
+
+// Simple BFS-based forward solver with node/depth limits. Returns Some(depth) for minimal
+// number of forward moves to reach a win state, or None if limit exceeded / not found.
+fn solve_min_moves(
+    board: &Board,
+    init_circles: &[usize],
+    init_crosses: &[usize],
+    player_idx: usize,
+    max_nodes: usize,
+    max_depth: usize,
+) -> Option<usize> {
+    use crate::movement;
+
+    let mut start = SolverState {
+        player: player_idx,
+        circles: init_circles.to_vec(),
+        crosses: init_crosses.to_vec(),
+    };
+    // keep crosses canonical
+    start.crosses.sort_unstable();
+
+    let mut visited: HashSet<SolverState> = HashSet::new();
+    let mut q: VecDeque<(SolverState, usize)> = VecDeque::new();
+    visited.insert(start.clone());
+    q.push_back((start, 0));
+
+    let mut nodes = 0usize;
+    let dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
+    while let Some((state, depth)) = q.pop_front() {
+        if depth > max_depth { continue; }
+        nodes += 1;
+        if nodes > max_nodes { return None; }
+
+        // goal test
+        if is_win_flat(&state.circles, board) {
+            return Some(depth);
+        }
+
+        // try moves
+        for &(dr, dc) in dirs.iter() {
+            // reconstruct rc vectors
+            let mut cir_rc: Vec<(usize, usize)> = state
+                .circles
+                .iter()
+                .map(|&f| board.from_flat(f))
+                .collect();
+            let mut crs_rc: Vec<(usize, usize)> = state
+                .crosses
+                .iter()
+                .map(|&f| board.from_flat(f))
+                .collect();
+
+            let before_cir: Vec<usize> = cir_rc.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let before_crs: Vec<usize> = crs_rc.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+
+            movement::attempt_move_runtime(&mut cir_rc, &mut crs_rc, state.player, dr, dc, board);
+
+            let after_cir: Vec<usize> = cir_rc.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            let mut after_crs: Vec<usize> = crs_rc.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
+            after_crs.sort_unstable();
+
+            if after_cir == before_cir && after_crs == before_crs {
+                continue; // no change
+            }
+
+            let new_state = SolverState {
+                player: state.player,
+                circles: after_cir,
+                crosses: after_crs,
+            };
+            if visited.insert(new_state.clone()) {
+                q.push_back((new_state, depth + 1));
+            }
+        }
+    }
+
+    None
 }
 
 pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Vec<usize>, usize) {
@@ -114,13 +200,33 @@ pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Ve
         let mut final_crosses_flat: Vec<usize> = crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
         final_crosses_flat.sort_unstable();
 
+        // quick difficulty filter using lightweight solver
+        let (max_nodes, min_moves_threshold) = match difficulty {
+            Difficulty::Easy => (10_000usize, 6usize),
+            Difficulty::Medium => (50_000usize, 20usize),
+            Difficulty::Hard => (200_000usize, 60usize),
+        };
+        match solve_min_moves(board, &final_circles_flat, &final_crosses_flat, player_idx, max_nodes, 400) {
+            Some(depth) => {
+                if depth < min_moves_threshold {
+                    if attempts >= max_attempts { break; } else { continue; }
+                }
+            }
+            None => {
+                // Timed out or not found within node/depth limits: for Easy require solvable; accept for Medium/Hard
+                if matches!(difficulty, Difficulty::Easy) {
+                    if attempts >= max_attempts { break; } else { continue; }
+                }
+            }
+        }
+
         // avoid trivial already-won or losing puzzles
         if is_win_flat(&final_circles_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
         if check_lose_flat(&final_crosses_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
         if check_cross_deadlock(&final_crosses_flat, board) { if attempts >= max_attempts { break; } else { continue; } }
 
-        // ensure player has at least one legal move (can't be completely stuck)
-        let mut has_move = false;
+        // ensure player has at least one safe legal move (can't be completely stuck or immediately lose)
+        let mut has_safe_move = false;
         let test_dirs: [(isize, isize); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
         for &(dr, dc) in test_dirs.iter() {
             let mut test_circles = circles.clone();
@@ -130,9 +236,21 @@ pub fn generate_puzzle(board: &Board, difficulty: Difficulty) -> (Vec<usize>, Ve
             crate::movement::attempt_move_runtime(&mut test_circles, &mut test_crosses, player_idx, dr, dc, board);
             let post_cir: Vec<usize> = test_circles.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
             let post_cross: Vec<usize> = test_crosses.iter().map(|&(r, c)| board.to_flat(r, c)).collect();
-            if pre_cir != post_cir || pre_cross != post_cross { has_move = true; break; }
+
+            // move must change state
+            if post_cir == pre_cir && post_cross == pre_cross { continue; }
+
+            // skip moves that immediately lose
+            if check_lose_flat(&post_cross, board) { continue; }
+
+            // skip moves that create an immediate cross deadlock
+            if check_cross_deadlock(&post_cross, board) { continue; }
+
+            // if we reach here, the move is considered safe
+            has_safe_move = true;
+            break;
         }
-        if !has_move { if attempts >= max_attempts { break; } else { continue; } }
+        if !has_safe_move { if attempts >= max_attempts { break; } else { continue; } }
 
         circles_flat = final_circles_flat;
         crosses_flat = final_crosses_flat;
