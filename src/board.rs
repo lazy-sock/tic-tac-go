@@ -15,11 +15,11 @@ impl Board {
     pub fn random() -> Self {
         let mut rng = thread_rng();
         let rows: usize = rng.gen_range(3..=8);
-        let min_cols = (20 + rows - 1) / rows;
+        let min_cols = 20_usize.div_ceil(rows);
         let max_cols = min_cols + 8;
         let cols: usize = rng.gen_range(min_cols..=max_cols);
 
-        let mut row_widths = vec![cols; rows];
+        let row_widths = vec![cols; rows];
 
         let mut row_offsets = vec![0usize; rows];
         for i in 1..rows {
@@ -30,14 +30,22 @@ impl Board {
         let default_grid_w: u16 = (4 * cols + 1) as u16;
         let default_grid_h: u16 = (2 * rows + 1) as u16;
 
-        Board { rows, cols, row_widths, row_offsets, total_cells, default_grid_w, default_grid_h }
+        Board {
+            rows,
+            cols,
+            row_widths,
+            row_offsets,
+            total_cells,
+            default_grid_w,
+            default_grid_h,
+        }
     }
 
     pub fn to_flat(&self, r: usize, c: usize) -> usize {
         self.row_offsets[r] + c
     }
 
-    pub fn from_flat(&self, mut idx: usize) -> (usize, usize) {
+    pub fn from_flat(&self, idx: usize) -> (usize, usize) {
         let mut r = 0usize;
         while r < self.rows {
             let start = self.row_offsets[r];
