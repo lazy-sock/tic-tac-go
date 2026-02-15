@@ -8,7 +8,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Clear};
 
 use crate::board::Board;
 use crate::generator;
@@ -219,6 +219,8 @@ pub fn run_app(
                 let overlay = Paragraph::new(msg_lines)
                     .style(Style::default().bg(Color::Black))
                     .block(Block::default().borders(Borders::ALL).title("Victory").style(Style::default().bg(Color::Black)));
+                f.render_widget(Clear, o_area);
+                f.render_widget(Block::default().style(Style::default().bg(Color::Black)), o_area);
                 f.render_widget(overlay, o_area);
             }
 
@@ -248,6 +250,8 @@ pub fn run_app(
                 let overlay = Paragraph::new(msg_lines)
                     .style(Style::default().bg(Color::Black))
                     .block(Block::default().borders(Borders::ALL).title("Defeat").style(Style::default().bg(Color::Black)));
+                f.render_widget(Clear, o_area);
+                f.render_widget(Block::default().style(Style::default().bg(Color::Black)), o_area);
                 f.render_widget(overlay, o_area);
             }
         })?;
