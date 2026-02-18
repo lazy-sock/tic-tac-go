@@ -94,6 +94,10 @@ pub fn check_cross_deadlock(crosses: &[usize], board: &Board) -> bool {
             && r + 1 < board.rows
             && c < board.row_widths[r + 1]
             && c + 1 < board.row_widths[r + 1]
+            && board.is_cell_present(r, c)
+            && board.is_cell_present(r, c + 1)
+            && board.is_cell_present(r + 1, c)
+            && board.is_cell_present(r + 1, c + 1)
             && set.contains(&(r, c + 1))
             && set.contains(&(r + 1, c))
             && set.contains(&(r + 1, c + 1))
@@ -104,10 +108,10 @@ pub fn check_cross_deadlock(crosses: &[usize], board: &Board) -> bool {
 
     // corner / blocked-by-crosses checks (conservative)
     for &(r, c) in set.iter() {
-        let up_missing = r == 0 || c >= board.row_widths[r - 1];
-        let down_missing = r + 1 >= board.rows || c >= board.row_widths[r + 1];
-        let left_missing = c == 0;
-        let right_missing = c + 1 >= board.row_widths[r];
+        let up_missing = r == 0 || c >= board.row_widths[r - 1] || !board.is_cell_present(r - 1, c);
+        let down_missing = r + 1 >= board.rows || c >= board.row_widths[r + 1] || !board.is_cell_present(r + 1, c);
+        let left_missing = c == 0 || !board.is_cell_present(r, c - 1);
+        let right_missing = c + 1 >= board.row_widths[r] || !board.is_cell_present(r, c + 1);
 
         if (up_missing && left_missing)
             || (up_missing && right_missing)
