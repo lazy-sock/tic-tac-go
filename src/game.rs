@@ -15,6 +15,96 @@ use crate::generator;
 use crate::movement;
 use crate::rules::{check_lose_flat, is_win_flat};
 
+pub fn select_difficulty(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+) -> Result<generator::Difficulty, Box<dyn Error>> {
+    let mut selection: usize = 1; // 0: Easy, 1: Medium, 2: Hard
+
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            let overlay_w = std::cmp::min(36, size.width.saturating_sub(4));
+            let overlay_h = 7u16;
+            let ox = (size.width.saturating_sub(overlay_w)) / 2;
+            let oy = (size.height.saturating_sub(overlay_h)) / 2;
+            let area = Rect::new(ox, oy, overlay_w, overlay_h);
+
+            let mut lines: Vec<Spans> = Vec::new();
+            lines.push(Spans::from(Span::styled(
+                " Select difficulty ",
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Spans::from(Span::raw("")));
+
+            for i in 0..3 {
+                let label = match i {
+                    0 => "Easy",
+                    1 => "Medium",
+                    _ => "Hard",
+                };
+                if i == selection {
+                    lines.push(Spans::from(Span::styled(
+                        format!("> {}", label),
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )));
+                } else {
+                    lines.push(Spans::from(Span::raw(format!("  {}", label))));
+                }
+            }
+
+            lines.push(Spans::from(Span::raw("")));
+            lines.push(Spans::from(Span::raw("Use ↑/↓ or w/s to move, Enter to select, q to quit.")));
+
+            let para = Paragraph::new(lines)
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).title("tic-tac-go"));
+
+            f.render_widget(Clear, area);
+            f.render_widget(Block::default().style(Style::default().bg(Color::Black)), area);
+            f.render_widget(para, area);
+        })?;
+
+        if event::poll(Duration::from_millis(150))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Err("user quit".into()),
+                    KeyCode::Up => {
+                        if selection > 0 {
+                            selection -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if selection < 2 {
+                            selection += 1;
+                        }
+                    }
+                    KeyCode::Char('w') => {
+                        if selection > 0 {
+                            selection -= 1;
+                        }
+                    }
+                    KeyCode::Char('s') => {
+                        if selection < 2 {
+                            selection += 1;
+                        }
+                    }
+                    KeyCode::Char('1') => selection = 0,
+                    KeyCode::Char('2') => selection = 1,
+                    KeyCode::Char('3') => selection = 2,
+                    KeyCode::Enter => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    match selection {
+        0 => Ok(generator::Difficulty::Easy),
+        1 => Ok(generator::Difficulty::Medium),
+        _ => Ok(generator::Difficulty::Hard),
+    }
+}
+
 pub fn run_app(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     difficulty: generator::Difficulty,

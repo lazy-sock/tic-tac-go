@@ -21,56 +21,28 @@ mod rules;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Setup terminal
-    let chosen_difficulty = {
-        // parse CLI args for -d / --difficulty; if absent, pick random
-        let mut args = env::args().skip(1);
-        let mut parsed: Option<crate::generator::Difficulty> = None;
-        while let Some(arg) = args.next() {
-            if arg == "-d" || arg == "--difficulty" {
-                if let Some(val) = args.next() {
-                    parsed = match val.to_lowercase().as_str() {
-                        "easy" => Some(crate::generator::Difficulty::Easy),
-                        "medium" => Some(crate::generator::Difficulty::Medium),
-                        "hard" => Some(crate::generator::Difficulty::Hard),
-                        _ => {
-                            eprintln!("unknown difficulty: {}", val);
-                            None
-                        }
-                    };
-                    break;
-                }
-            } else if arg.starts_with("--difficulty=") || arg.starts_with("-d=") {
-                let val = arg.split_once('=').unwrap().1;
-                parsed = match val.to_lowercase().as_str() {
-                    "easy" => Some(crate::generator::Difficulty::Easy),
-                    "medium" => Some(crate::generator::Difficulty::Medium),
-                    "hard" => Some(crate::generator::Difficulty::Hard),
-                    _ => {
-                        eprintln!("unknown difficulty: {}", val);
-                        None
-                    }
-                };
-                break;
-            }
-        }
-        if let Some(d) = parsed {
-            d
-        } else {
-            let mut rng = thread_rng();
-            *[
-                crate::generator::Difficulty::Easy,
-                crate::generator::Difficulty::Medium,
-                crate::generator::Difficulty::Hard,
-            ]
-            .choose(&mut rng)
-            .unwrap()
-        }
-    };
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+
+    // Show start screen to select difficulty. If the user quits from the start screen, exit gracefully.
+    let chosen_difficulty = match game::select_difficulty(&mut terminal) {
+        Ok(d) => d,
+        Err(_) => {
+            // Restore terminal and exit without running the game
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+            terminal.show_cursor()?;
+            return Ok(());
+        }
+    };
 
     let res = game::run_app(&mut terminal, chosen_difficulty);
 
