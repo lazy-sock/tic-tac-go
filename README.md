@@ -1,5 +1,7 @@
 # tic-tac-go
 
+Note: this project is heavily vibe-coded.
+
 This project implements tic-tac-go (not tic-tac-toe) in the terminal. tic-tac-goe is a game made by google. It can be played in the browser here: https://share.google/hFVA6jvctNhdHv10p
 
 Basic rules
