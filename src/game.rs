@@ -15,6 +15,139 @@ use crate::generator;
 use crate::movement;
 use crate::rules::{check_lose_flat, is_win_flat};
 
+pub enum StartupMode {
+    Play(generator::Difficulty),
+    Create,
+}
+
+pub fn select_mode(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+) -> Result<StartupMode, Box<dyn Error>> {
+    let mut selection: usize = 0; // 0: Play, 1: Create
+
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            let overlay_w = std::cmp::min(48, size.width.saturating_sub(4));
+            let overlay_h = 7u16;
+            let ox = (size.width.saturating_sub(overlay_w)) / 2;
+            let oy = (size.height.saturating_sub(overlay_h)) / 2;
+            let area = Rect::new(ox, oy, overlay_w, overlay_h);
+
+            let mut lines: Vec<Spans> = Vec::new();
+            lines.push(Spans::from(Span::styled(
+                " Main Menu ",
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Spans::from(Span::raw("")));
+
+            let options = ["Play generated puzzle", "Create puzzle"];
+            for i in 0..2 {
+                if i == selection {
+                    lines.push(Spans::from(Span::styled(
+                        format!("> {}", options[i]),
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    )));
+                } else {
+                    lines.push(Spans::from(Span::raw(format!("  {}", options[i]))));
+                }
+            }
+
+            lines.push(Spans::from(Span::raw("")));
+            lines.push(Spans::from(Span::raw("Use ↑/↓ or w/s to move, Enter to select, q to quit.")));
+
+            let para = Paragraph::new(lines)
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).title("tic-tac-go"));
+
+            f.render_widget(Clear, area);
+            f.render_widget(Block::default().style(Style::default().bg(Color::Black)), area);
+            f.render_widget(para, area);
+        })?;
+
+        if event::poll(Duration::from_millis(150))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Err("user quit".into()),
+                    KeyCode::Up => {
+                        if selection > 0 {
+                            selection -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if selection < 1 {
+                            selection += 1;
+                        }
+                    }
+                    KeyCode::Char('w') => {
+                        if selection > 0 {
+                            selection -= 1;
+                        }
+                    }
+                    KeyCode::Char('s') => {
+                        if selection < 1 {
+                            selection += 1;
+                        }
+                    }
+                    KeyCode::Char('1') => selection = 0,
+                    KeyCode::Char('2') => selection = 1,
+                    KeyCode::Enter => {
+                        if selection == 0 {
+                            let diff = select_difficulty(terminal)?;
+                            return Ok(StartupMode::Play(diff));
+                        } else {
+                            return Ok(StartupMode::Create);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+pub fn show_create_placeholder(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+) -> Result<(), Box<dyn Error>> {
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+            let overlay_w = std::cmp::min(60, size.width.saturating_sub(4));
+            let overlay_h = 7u16;
+            let ox = (size.width.saturating_sub(overlay_w)) / 2;
+            let oy = (size.height.saturating_sub(overlay_h)) / 2;
+            let area = Rect::new(ox, oy, overlay_w, overlay_h);
+
+            let mut lines: Vec<Spans> = Vec::new();
+            lines.push(Spans::from(Span::styled(
+                " Create puzzle (placeholder) ",
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Spans::from(Span::raw("")));
+            lines.push(Spans::from(Span::raw("Feature coming soon.")));
+            lines.push(Spans::from(Span::raw("")));
+            lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
+
+            let para = Paragraph::new(lines)
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL).title("tic-tac-go"));
+
+            f.render_widget(Clear, area);
+            f.render_widget(Block::default().style(Style::default().bg(Color::Black)), area);
+            f.render_widget(para, area);
+        })?;
+
+        if event::poll(Duration::from_millis(150))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 pub fn select_difficulty(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
 ) -> Result<generator::Difficulty, Box<dyn Error>> {

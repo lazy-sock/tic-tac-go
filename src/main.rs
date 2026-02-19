@@ -28,9 +28,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Show start screen to select difficulty. If the user quits from the start screen, exit gracefully.
-    let chosen_difficulty = match game::select_difficulty(&mut terminal) {
-        Ok(d) => d,
+    // Show main menu to select mode (play or create). If user quits, exit gracefully.
+    let res = match game::select_mode(&mut terminal) {
+        Ok(game::StartupMode::Play(d)) => game::run_app(&mut terminal, d),
+        Ok(game::StartupMode::Create) => {
+            // show placeholder for create puzzle, then restore and exit
+            game::show_create_placeholder(&mut terminal)?;
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+            terminal.show_cursor()?;
+            return Ok(());
+        }
         Err(_) => {
             // Restore terminal and exit without running the game
             disable_raw_mode()?;
@@ -43,8 +55,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Ok(());
         }
     };
-
-    let res = game::run_app(&mut terminal, chosen_difficulty);
 
     // Restore terminal
     disable_raw_mode()?;
