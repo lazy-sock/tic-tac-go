@@ -19,13 +19,15 @@ pub fn show_create_placeholder(
             let size = f.size();
             let overlay_w = std::cmp::min(60, size.width.saturating_sub(4));
 
+            let cursor = vec![(0usize, 0usize)];
+
             let mut lines: Vec<Spans> = Vec::new();
             lines.push(Spans::from(Span::styled(
                 " Create puzzle ",
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
-            lines.extend(create_matrix(vec![(5, 5)]));
+            lines.extend(create_matrix(vec![(5, 5)], cursor));
             lines.push(Spans::from(Span::raw("")));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
 
@@ -50,7 +52,9 @@ pub fn show_create_placeholder(
             f.render_widget(para, area);
         })?;
 
-        if event::poll(Duration::from_millis(150))? && let Event::Key(key) = event::read()? {
+        if event::poll(Duration::from_millis(150))?
+            && let Event::Key(key) = event::read()?
+        {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
                 _ => {}
@@ -59,7 +63,7 @@ pub fn show_create_placeholder(
     }
 }
 
-fn create_matrix(size: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
+fn create_matrix(size: Vec<(usize, usize)>, cursor: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
     let mut output: Vec<Spans<'static>> = Vec::new();
 
     for (rows, cols) in size.into_iter() {
@@ -78,18 +82,23 @@ fn create_matrix(size: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
         }
         output.push(Spans::from(Span::raw(top)));
 
-        for _ in 0..rows {
-            // Content line: draw empty cells with internal vertical separators between adjacent cells
-            let mut content = String::new();
+        for row in 0..rows {
+            // Content line: draw cells with internal vertical separators; highlight cursor cell
+            let mut spans: Vec<Span<'static>> = Vec::new();
             for col in 0..cols {
-                let next_present = col + 1 < cols; // rectangular preview: all cells present
-                if next_present {
-                    content.push_str("   │");
+                let cell = if cursor.contains(&(row, col)) {
+                    Span::styled(" ● ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
                 } else {
-                    content.push_str("    ");
+                    Span::raw("   ")
+                };
+                spans.push(cell);
+                if col + 1 < cols {
+                    spans.push(Span::raw("│"));
+                } else {
+                    spans.push(Span::raw(" "));
                 }
             }
-            output.push(Spans::from(Span::raw(content)));
+            output.push(Spans::from(spans));
 
             // Border after row
             let mut border = String::new();
