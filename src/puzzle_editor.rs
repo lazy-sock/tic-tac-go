@@ -50,12 +50,10 @@ pub fn show_create_placeholder(
             f.render_widget(para, area);
         })?;
 
-        if event::poll(Duration::from_millis(150))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    _ => {}
-                }
+        if event::poll(Duration::from_millis(150))? && let Event::Key(key) = event::read()? {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                _ => {}
             }
         }
     }
@@ -80,7 +78,7 @@ fn create_matrix(size: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
         }
         output.push(Spans::from(Span::raw(top)));
 
-        for row in 0..rows {
+        for _ in 0..rows {
             // Content line: draw empty cells with internal vertical separators between adjacent cells
             let mut content = String::new();
             for col in 0..cols {
@@ -93,20 +91,12 @@ fn create_matrix(size: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
             }
             output.push(Spans::from(Span::raw(content)));
 
-            // Middle border or bottom border
-            if row != rows - 1 {
-                let mut mid = String::new();
-                for _ in 0..cols {
-                    mid.push_str("─── ");
-                }
-                output.push(Spans::from(Span::raw(mid)));
-            } else {
-                let mut bot = String::new();
-                for _ in 0..cols {
-                    bot.push_str("─── ");
-                }
-                output.push(Spans::from(Span::raw(bot)));
+            // Border after row
+            let mut border = String::new();
+            for _ in 0..cols {
+                border.push_str("─── ");
             }
+            output.push(Spans::from(Span::raw(border)));
         }
 
         // blank separator between previews
