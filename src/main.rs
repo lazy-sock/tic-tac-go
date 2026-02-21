@@ -1,6 +1,3 @@
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use std::env;
 use std::error::Error;
 use std::io::{self};
 
@@ -17,6 +14,7 @@ mod board;
 mod game;
 mod generator;
 mod movement;
+mod puzzle_editor;
 mod rules;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -33,7 +31,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Ok(game::StartupMode::Play(d)) => game::run_app(&mut terminal, d),
         Ok(game::StartupMode::Create) => {
             // show placeholder for create puzzle, then restore and exit
-            game::show_create_placeholder(&mut terminal)?;
+            puzzle_editor::show_create_placeholder(&mut terminal)?;
             disable_raw_mode()?;
             execute!(
                 terminal.backend_mut(),

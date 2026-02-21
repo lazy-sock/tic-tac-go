@@ -8,7 +8,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
-use ratatui::widgets::{Block, Borders, Paragraph, Clear};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::board::Board;
 use crate::generator;
@@ -41,12 +41,14 @@ pub fn select_mode(
             )));
             lines.push(Spans::from(Span::raw("")));
 
-            let options = ["Play generated puzzle", "Create puzzle"];
+            let options = ["Play generated puzzle (WIP)", "Create puzzle"];
             for i in 0..2 {
                 if i == selection {
                     lines.push(Spans::from(Span::styled(
                         format!("> {}", options[i]),
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     )));
                 } else {
                     lines.push(Spans::from(Span::raw(format!("  {}", options[i]))));
@@ -54,14 +56,19 @@ pub fn select_mode(
             }
 
             lines.push(Spans::from(Span::raw("")));
-            lines.push(Spans::from(Span::raw("Use ↑/↓ or w/s to move, Enter to select, q to quit.")));
+            lines.push(Spans::from(Span::raw(
+                "Use ↑/↓ or w/s to move, Enter to select, q to quit.",
+            )));
 
             let para = Paragraph::new(lines)
                 .alignment(Alignment::Center)
                 .block(Block::default().borders(Borders::ALL).title("tic-tac-go"));
 
             f.render_widget(Clear, area);
-            f.render_widget(Block::default().style(Style::default().bg(Color::Black)), area);
+            f.render_widget(
+                Block::default().style(Style::default().bg(Color::Black)),
+                area,
+            );
             f.render_widget(para, area);
         })?;
 
@@ -106,48 +113,6 @@ pub fn select_mode(
     }
 }
 
-pub fn show_create_placeholder(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-) -> Result<(), Box<dyn Error>> {
-    loop {
-        terminal.draw(|f| {
-            let size = f.size();
-            let overlay_w = std::cmp::min(60, size.width.saturating_sub(4));
-            let overlay_h = 7u16;
-            let ox = (size.width.saturating_sub(overlay_w)) / 2;
-            let oy = (size.height.saturating_sub(overlay_h)) / 2;
-            let area = Rect::new(ox, oy, overlay_w, overlay_h);
-
-            let mut lines: Vec<Spans> = Vec::new();
-            lines.push(Spans::from(Span::styled(
-                " Create puzzle (placeholder) ",
-                Style::default().add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Spans::from(Span::raw("")));
-            lines.push(Spans::from(Span::raw("Feature coming soon.")));
-            lines.push(Spans::from(Span::raw("")));
-            lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
-
-            let para = Paragraph::new(lines)
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL).title("tic-tac-go"));
-
-            f.render_widget(Clear, area);
-            f.render_widget(Block::default().style(Style::default().bg(Color::Black)), area);
-            f.render_widget(para, area);
-        })?;
-
-        if event::poll(Duration::from_millis(150))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    _ => {}
-                }
-            }
-        }
-    }
-}
-
 pub fn select_difficulty(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
 ) -> Result<generator::Difficulty, Box<dyn Error>> {
@@ -178,7 +143,9 @@ pub fn select_difficulty(
                 if i == selection {
                     lines.push(Spans::from(Span::styled(
                         format!("> {}", label),
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
                     )));
                 } else {
                     lines.push(Spans::from(Span::raw(format!("  {}", label))));
@@ -186,14 +153,19 @@ pub fn select_difficulty(
             }
 
             lines.push(Spans::from(Span::raw("")));
-            lines.push(Spans::from(Span::raw("Use ↑/↓ or w/s to move, Enter to select, q to quit.")));
+            lines.push(Spans::from(Span::raw(
+                "Use ↑/↓ or w/s to move, Enter to select, q to quit.",
+            )));
 
             let para = Paragraph::new(lines)
                 .alignment(Alignment::Center)
                 .block(Block::default().borders(Borders::ALL).title("tic-tac-go"));
 
             f.render_widget(Clear, area);
-            f.render_widget(Block::default().style(Style::default().bg(Color::Black)), area);
+            f.render_widget(
+                Block::default().style(Style::default().bg(Color::Black)),
+                area,
+            );
             f.render_widget(para, area);
         })?;
 
@@ -327,7 +299,9 @@ pub fn run_app(
                     }
                 }
             } else {
-                for _ in 0..cols { top.push_str("    "); }
+                for _ in 0..cols {
+                    top.push_str("    ");
+                }
             }
             lines.push(Spans::from(Span::raw(top)));
 
@@ -341,13 +315,16 @@ pub fn run_app(
                         span_line.push(Span::raw("    "));
                         continue;
                     }
-                    let next_present = (col + 1) < row_widths[row] && board.is_cell_present(row, col + 1);
+                    let next_present =
+                        (col + 1) < row_widths[row] && board.is_cell_present(row, col + 1);
 
                     if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
                         let is_player = idx == player_idx;
                         let symbol = "o";
                         let style = if is_player {
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
                         } else {
                             Style::default().fg(Color::LightBlue)
                         };
@@ -374,7 +351,8 @@ pub fn run_app(
                     let mut mid = String::new();
                     for col in 0..cols {
                         let top_here = col < row_widths[row] && board.is_cell_present(row, col);
-                        let bottom_here = col < row_widths[row + 1] && board.is_cell_present(row + 1, col);
+                        let bottom_here =
+                            col < row_widths[row + 1] && board.is_cell_present(row + 1, col);
                         if top_here && bottom_here {
                             mid.push_str("─── ");
                         } else {
@@ -443,9 +421,17 @@ pub fn run_app(
                 let overlay = Paragraph::new(msg_lines)
                     .alignment(Alignment::Center)
                     .style(Style::default().bg(Color::Black))
-                    .block(Block::default().borders(Borders::ALL).title("Victory").style(Style::default().bg(Color::Black)));
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Victory")
+                            .style(Style::default().bg(Color::Black)),
+                    );
                 f.render_widget(Clear, o_area);
-                f.render_widget(Block::default().style(Style::default().bg(Color::Black)), o_area);
+                f.render_widget(
+                    Block::default().style(Style::default().bg(Color::Black)),
+                    o_area,
+                );
                 f.render_widget(overlay, o_area);
             }
 
@@ -475,9 +461,17 @@ pub fn run_app(
                 let overlay = Paragraph::new(msg_lines)
                     .alignment(Alignment::Center)
                     .style(Style::default().bg(Color::Black))
-                    .block(Block::default().borders(Borders::ALL).title("Defeat").style(Style::default().bg(Color::Black)));
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Defeat")
+                            .style(Style::default().bg(Color::Black)),
+                    );
                 f.render_widget(Clear, o_area);
-                f.render_widget(Block::default().style(Style::default().bg(Color::Black)), o_area);
+                f.render_widget(
+                    Block::default().style(Style::default().bg(Color::Black)),
+                    o_area,
+                );
                 f.render_widget(overlay, o_area);
             }
         })?;
