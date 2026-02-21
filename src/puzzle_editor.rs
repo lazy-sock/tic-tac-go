@@ -148,57 +148,85 @@ fn create_matrix(size: &[(usize, usize)], cursor: &[(usize, usize)], circles: &[
             continue;
         }
 
-        // Top border
-        let mut top = String::new();
-        for _ in 0..cols {
-            top.push_str("─── ");
+        // Top border: build per-column spans so we can highlight around cursor on filled cells
+        let mut top_spans: Vec<Span> = Vec::new();
+        for col in 0..cols {
+            let filled = circles.iter().any(|&(r, c)| r == 0 && c == col)
+                || crosses.iter().any(|&(r, c)| r == 0 && c == col);
+            let highlight = cursor.contains(&(0usize, col)) && filled;
+            if highlight {
+                top_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+            } else {
+                top_spans.push(Span::raw("─── "));
+            }
         }
-        output.push(Spans::from(Span::raw(top)));
+        output.push(Spans::from(top_spans));
 
         for row in 0..rows {
-            // Content line: draw cells with internal vertical separators; draw objects and cursor
-            let mut spans: Vec<Span<'static>> = Vec::new();
+            // Precompute occupancy for the row
+            let mut circle_here = vec![false; cols];
+            let mut cross_here = vec![false; cols];
             for col in 0..cols {
-                // priority: circles > crosses > cursor > empty
-                if circles.iter().position(|&(rr, cc)| rr == row && cc == col).is_some() {
-                    let style = Style::default().fg(Color::LightBlue);
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled("o".to_string(), style));
-                    spans.push(Span::raw(if col + 1 < cols { " │" } else { "  " }));
-                    continue;
-                }
-                if crosses.iter().position(|&(rr, cc)| rr == row && cc == col).is_some() {
-                    let style = Style::default().fg(Color::Red);
-                    spans.push(Span::raw(" "));
-                    spans.push(Span::styled("x".to_string(), style));
-                    spans.push(Span::raw(if col + 1 < cols { " │" } else { "  " }));
-                    continue;
-                }
+                circle_here[col] = circles.iter().any(|&(r, c)| r == row && c == col);
+                cross_here[col] = crosses.iter().any(|&(r, c)| r == row && c == col);
+            }
 
-                if cursor.contains(&(row, col)) {
-                    // make cursor yellow so it doesn't look like a circle
-                    spans.push(Span::styled(
-                        " ● ",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                    ));
+            // Content line: draw cells and separators with conditional highlighting
+            let mut content_spans: Vec<Span> = Vec::new();
+            for col in 0..cols {
+                // left padding
+                content_spans.push(Span::raw(" "));
+
+                // cell contents: circle, cross, cursor (only if empty), or empty
+                if circle_here[col] {
+                    content_spans.push(Span::styled("o".to_string(), Style::default().fg(Color::LightBlue)));
+                } else if cross_here[col] {
+                    content_spans.push(Span::styled("x".to_string(), Style::default().fg(Color::Red)));
+                } else if cursor.contains(&(row, col)) {
+                    content_spans.push(Span::styled("●", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
                 } else {
-                    spans.push(Span::raw("   "));
+                    content_spans.push(Span::raw(" "));
                 }
 
+                // right padding
+                content_spans.push(Span::raw(" "));
+
+                // separator between cells (vertical). Highlight if adjacent to a filled cursor cell
                 if col + 1 < cols {
-                    spans.push(Span::raw("│"));
+                    let left_cursor_filled = cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
+                    let right_cursor_filled = cursor.contains(&(row, col + 1))
+                        && (circles.iter().any(|&(r, c)| r == row && c == col + 1)
+                            || crosses.iter().any(|&(r, c)| r == row && c == col + 1));
+                    if left_cursor_filled || right_cursor_filled {
+                        content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                    } else {
+                        content_spans.push(Span::raw("│"));
+                    }
                 } else {
-                    spans.push(Span::raw(" "));
+                    // trailing space for the last column
+                    content_spans.push(Span::raw(" "));
                 }
             }
-            output.push(Spans::from(spans));
+            output.push(Spans::from(content_spans));
 
-            // Border after row
-            let mut border = String::new();
-            for _ in 0..cols {
-                border.push_str("─── ");
+            // Border after row: highlight segments adjacent to a filled cursor cell (top or bottom)
+            let mut border_spans: Vec<Span> = Vec::new();
+            for col in 0..cols {
+                let top_adjacent = cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
+                let bottom_adjacent = if row + 1 < rows {
+                    let circle_below = circles.iter().any(|&(r, c)| r == row + 1 && c == col);
+                    let cross_below = crosses.iter().any(|&(r, c)| r == row + 1 && c == col);
+                    cursor.contains(&(row + 1, col)) && (circle_below || cross_below)
+                } else {
+                    false
+                };
+                if top_adjacent || bottom_adjacent {
+                    border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                } else {
+                    border_spans.push(Span::raw("─── "));
+                }
             }
-            output.push(Spans::from(Span::raw(border)));
+            output.push(Spans::from(border_spans));
         }
 
         // blank separator between previews
