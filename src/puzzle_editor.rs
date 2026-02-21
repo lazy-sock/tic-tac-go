@@ -18,10 +18,6 @@ pub fn show_create_placeholder(
         terminal.draw(|f| {
             let size = f.size();
             let overlay_w = std::cmp::min(60, size.width.saturating_sub(4));
-            let overlay_h = 7u16;
-            let ox = (size.width.saturating_sub(overlay_w)) / 2;
-            let oy = (size.height.saturating_sub(overlay_h)) / 2;
-            let area = Rect::new(ox, oy, overlay_w, overlay_h);
 
             let mut lines: Vec<Spans> = Vec::new();
             lines.push(Spans::from(Span::styled(
@@ -32,6 +28,15 @@ pub fn show_create_placeholder(
             lines.extend(create_matrix(vec![(5, 5)]));
             lines.push(Spans::from(Span::raw("")));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
+
+            // compute height based on content, cap to terminal size and a reasonable max
+            let desired_h = (lines.len() as u16).saturating_add(2);
+            let max_h = size.height.saturating_sub(4);
+            let overlay_h = std::cmp::min(60u16, std::cmp::min(max_h, desired_h));
+
+            let ox = (size.width.saturating_sub(overlay_w)) / 2;
+            let oy = (size.height.saturating_sub(overlay_h)) / 2;
+            let area = Rect::new(ox, oy, overlay_w, overlay_h);
 
             let para = Paragraph::new(lines)
                 .alignment(Alignment::Center)
