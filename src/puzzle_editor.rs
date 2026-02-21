@@ -14,12 +14,13 @@ use std::time::Duration;
 pub fn show_create_placeholder(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
 ) -> Result<(), Box<dyn Error>> {
+    let preview = (5usize, 5usize);
+    let mut cursor = vec![(0usize, 0usize)];
+
     loop {
         terminal.draw(|f| {
             let size = f.size();
             let overlay_w = std::cmp::min(60, size.width.saturating_sub(4));
-
-            let cursor = vec![(0usize, 0usize)];
 
             let mut lines: Vec<Spans> = Vec::new();
             lines.push(Spans::from(Span::styled(
@@ -27,8 +28,11 @@ pub fn show_create_placeholder(
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
-            lines.extend(create_matrix(vec![(5, 5)], cursor));
+            lines.extend(create_matrix(&[(preview.0, preview.1)], &cursor));
             lines.push(Spans::from(Span::raw("")));
+            lines.push(Spans::from(Span::raw(
+                " Use WASD or arrow keys to move the cursor ",
+            )));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
 
             // compute height based on content, cap to terminal size and a reasonable max
@@ -57,16 +61,42 @@ pub fn show_create_placeholder(
         {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                _ => {}
+                code => move_cursor(&mut cursor, code, preview.0, preview.1),
             }
         }
     }
 }
 
-fn create_matrix(size: Vec<(usize, usize)>, cursor: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
+fn move_cursor(cursor: &mut Vec<(usize, usize)>, key: KeyCode, rows: usize, cols: usize) {
+    if rows == 0 || cols == 0 {
+        return;
+    }
+    if cursor.is_empty() {
+        cursor.push((0, 0));
+    }
+    if let Some(pos) = cursor.get_mut(0) {
+        match key {
+            KeyCode::Char('w') | KeyCode::Char('W') | KeyCode::Up => {
+                pos.0 = pos.0.saturating_sub(1);
+            }
+            KeyCode::Char('s') | KeyCode::Char('S') | KeyCode::Down => {
+                pos.0 = std::cmp::min(pos.0 + 1, rows.saturating_sub(1));
+            }
+            KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Left => {
+                pos.1 = pos.1.saturating_sub(1);
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Right => {
+                pos.1 = std::cmp::min(pos.1 + 1, cols.saturating_sub(1));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn create_matrix(size: &[(usize, usize)], cursor: &[(usize, usize)]) -> Vec<Spans<'static>> {
     let mut output: Vec<Spans<'static>> = Vec::new();
 
-    for (rows, cols) in size.into_iter() {
+    for (rows, cols) in size.iter().copied() {
         // handle degenerate sizes
         if rows == 0 || cols == 0 {
             output.push(Spans::default());
@@ -87,7 +117,12 @@ fn create_matrix(size: Vec<(usize, usize)>, cursor: Vec<(usize, usize)>) -> Vec<
             let mut spans: Vec<Span<'static>> = Vec::new();
             for col in 0..cols {
                 let cell = if cursor.contains(&(row, col)) {
-                    Span::styled(" ● ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+                    Span::styled(
+                        " ● ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
                 } else {
                     Span::raw("   ")
                 };
