@@ -16,6 +16,8 @@ pub fn show_create_placeholder(
 ) -> Result<(), Box<dyn Error>> {
     let preview = (5usize, 5usize);
     let mut cursor = vec![(0usize, 0usize)];
+    let mut circles: Vec<(usize, usize)> = Vec::new();
+    let mut crosses: Vec<(usize, usize)> = Vec::new();
 
     loop {
         terminal.draw(|f| {
@@ -28,8 +30,11 @@ pub fn show_create_placeholder(
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
-            lines.extend(create_matrix(&[(preview.0, preview.1)], &cursor));
+            lines.extend(create_matrix(&[(preview.0, preview.1)], &cursor, &circles, &crosses));
             lines.push(Spans::from(Span::raw("")));
+            lines.push(Spans::from(Span::raw(
+                " Press O or X to draw, Backspace to delete ",
+            )));
             lines.push(Spans::from(Span::raw(
                 " Use WASD or arrow keys to move the cursor ",
             )));
@@ -61,9 +66,47 @@ pub fn show_create_placeholder(
         {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                KeyCode::Char('o') | KeyCode::Char('O') | KeyCode::Char('x') | KeyCode::Char('X') | KeyCode::Backspace => {
+                    edit_cell(key.code, &cursor, &mut circles, &mut crosses)
+                }
                 code => move_cursor(&mut cursor, code, preview.0, preview.1),
             }
         }
+    }
+}
+
+fn edit_cell(key: KeyCode, cursor: &[(usize, usize)], circles: &mut Vec<(usize, usize)>, crosses: &mut Vec<(usize, usize)>) {
+    if cursor.is_empty() {
+        return;
+    }
+    let pos = cursor[0];
+    match key {
+        KeyCode::Char('o') | KeyCode::Char('O') => {
+            // remove cross if present, add circle if missing
+            if let Some(idx) = crosses.iter().position(|&p| p == pos) {
+                crosses.remove(idx);
+            }
+            if !circles.contains(&pos) {
+                circles.push(pos);
+            }
+        }
+        KeyCode::Char('x') | KeyCode::Char('X') => {
+            if let Some(idx) = circles.iter().position(|&p| p == pos) {
+                circles.remove(idx);
+            }
+            if !crosses.contains(&pos) {
+                crosses.push(pos);
+            }
+        }
+        KeyCode::Backspace => {
+            if let Some(idx) = circles.iter().position(|&p| p == pos) {
+                circles.remove(idx);
+            }
+            if let Some(idx) = crosses.iter().position(|&p| p == pos) {
+                crosses.remove(idx);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -93,7 +136,7 @@ fn move_cursor(cursor: &mut Vec<(usize, usize)>, key: KeyCode, rows: usize, cols
     }
 }
 
-fn create_matrix(size: &[(usize, usize)], cursor: &[(usize, usize)]) -> Vec<Spans<'static>> {
+fn create_matrix(size: &[(usize, usize)], cursor: &[(usize, usize)], circles: &[(usize, usize)], crosses: &[(usize, usize)]) -> Vec<Spans<'static>> {
     let mut output: Vec<Spans<'static>> = Vec::new();
 
     for (rows, cols) in size.iter().copied() {
@@ -113,20 +156,35 @@ fn create_matrix(size: &[(usize, usize)], cursor: &[(usize, usize)]) -> Vec<Span
         output.push(Spans::from(Span::raw(top)));
 
         for row in 0..rows {
-            // Content line: draw cells with internal vertical separators; highlight cursor cell
+            // Content line: draw cells with internal vertical separators; draw objects and cursor
             let mut spans: Vec<Span<'static>> = Vec::new();
             for col in 0..cols {
-                let cell = if cursor.contains(&(row, col)) {
-                    Span::styled(
+                // priority: circles > crosses > cursor > empty
+                if circles.iter().position(|&(rr, cc)| rr == row && cc == col).is_some() {
+                    let style = Style::default().fg(Color::LightBlue);
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled("o".to_string(), style));
+                    spans.push(Span::raw(if col + 1 < cols { " │" } else { "  " }));
+                    continue;
+                }
+                if crosses.iter().position(|&(rr, cc)| rr == row && cc == col).is_some() {
+                    let style = Style::default().fg(Color::Red);
+                    spans.push(Span::raw(" "));
+                    spans.push(Span::styled("x".to_string(), style));
+                    spans.push(Span::raw(if col + 1 < cols { " │" } else { "  " }));
+                    continue;
+                }
+
+                if cursor.contains(&(row, col)) {
+                    // make cursor yellow so it doesn't look like a circle
+                    spans.push(Span::styled(
                         " ● ",
-                        Style::default()
-                            .fg(Color::Cyan)
-                            .add_modifier(Modifier::BOLD),
-                    )
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    ));
                 } else {
-                    Span::raw("   ")
-                };
-                spans.push(cell);
+                    spans.push(Span::raw("   "));
+                }
+
                 if col + 1 < cols {
                     spans.push(Span::raw("│"));
                 } else {
