@@ -56,7 +56,58 @@ pub fn show_create_placeholder(
     }
 }
 
-fn create_matrix(size: Vec<(usize, usize)>) -> String {
-    let mut output = String::from("");
+fn create_matrix(size: Vec<(usize, usize)>) -> Vec<String> {
+    let mut output: Vec<String> = Vec::new();
+
+    for (rows, cols) in size.into_iter() {
+        // handle degenerate sizes
+        if rows == 0 || cols == 0 {
+            output.push(String::new());
+            output.push(String::new());
+            output.push(String::new());
+            continue;
+        }
+
+        // Top border
+        let mut top = String::new();
+        for _ in 0..cols {
+            top.push_str("─── ");
+        }
+        output.push(top);
+
+        for row in 0..rows {
+            // Content line: draw empty cells with internal vertical separators between adjacent cells
+            let mut content = String::new();
+            for col in 0..cols {
+                let next_present = col + 1 < cols; // rectangular preview: all cells present
+                if next_present {
+                    content.push_str("   │");
+                } else {
+                    content.push_str("    ");
+                }
+            }
+            output.push(content);
+
+            // Middle border or bottom border
+            if row != rows - 1 {
+                let mut mid = String::new();
+                for _ in 0..cols {
+                    mid.push_str("─── ");
+                }
+                output.push(mid);
+            } else {
+                let mut bot = String::new();
+                for _ in 0..cols {
+                    bot.push_str("─── ");
+                }
+                output.push(bot);
+            }
+        }
+
+        // blank separator between previews
+        output.push(String::new());
+    }
+
     output
 }
+
