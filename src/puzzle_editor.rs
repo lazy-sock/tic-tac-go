@@ -29,7 +29,7 @@ pub fn show_create_placeholder(
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
-            lines.push(Spans::from(Span::raw("Feature coming soon.")));
+            lines.extend(create_matrix(vec![(5, 5)]));
             lines.push(Spans::from(Span::raw("")));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
 
@@ -56,15 +56,15 @@ pub fn show_create_placeholder(
     }
 }
 
-fn create_matrix(size: Vec<(usize, usize)>) -> Vec<String> {
-    let mut output: Vec<String> = Vec::new();
+fn create_matrix(size: Vec<(usize, usize)>) -> Vec<Spans<'static>> {
+    let mut output: Vec<Spans<'static>> = Vec::new();
 
     for (rows, cols) in size.into_iter() {
         // handle degenerate sizes
         if rows == 0 || cols == 0 {
-            output.push(String::new());
-            output.push(String::new());
-            output.push(String::new());
+            output.push(Spans::default());
+            output.push(Spans::default());
+            output.push(Spans::default());
             continue;
         }
 
@@ -73,7 +73,7 @@ fn create_matrix(size: Vec<(usize, usize)>) -> Vec<String> {
         for _ in 0..cols {
             top.push_str("─── ");
         }
-        output.push(top);
+        output.push(Spans::from(Span::raw(top)));
 
         for row in 0..rows {
             // Content line: draw empty cells with internal vertical separators between adjacent cells
@@ -86,7 +86,7 @@ fn create_matrix(size: Vec<(usize, usize)>) -> Vec<String> {
                     content.push_str("    ");
                 }
             }
-            output.push(content);
+            output.push(Spans::from(Span::raw(content)));
 
             // Middle border or bottom border
             if row != rows - 1 {
@@ -94,20 +94,19 @@ fn create_matrix(size: Vec<(usize, usize)>) -> Vec<String> {
                 for _ in 0..cols {
                     mid.push_str("─── ");
                 }
-                output.push(mid);
+                output.push(Spans::from(Span::raw(mid)));
             } else {
                 let mut bot = String::new();
                 for _ in 0..cols {
                     bot.push_str("─── ");
                 }
-                output.push(bot);
+                output.push(Spans::from(Span::raw(bot)));
             }
         }
 
         // blank separator between previews
-        output.push(String::new());
+        output.push(Spans::default());
     }
 
     output
 }
-
