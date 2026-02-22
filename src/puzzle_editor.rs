@@ -135,11 +135,16 @@ fn edit_cell(
             if removed.contains(&pos) {
                 return;
             }
-            // remove cross if present, add circle if missing
+            // remove cross if present
             if let Some(idx) = crosses.iter().position(|&p| p == pos) {
                 crosses.remove(idx);
             }
+            // add circle if missing, but enforce a maximum of 3
             if !circles.contains(&pos) {
+                if circles.len() >= 3 {
+                    // limit reached; do not add another circle
+                    return;
+                }
                 circles.push(pos);
             }
         }
