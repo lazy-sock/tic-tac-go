@@ -9,28 +9,44 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use std::time::Duration;
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn puzzle_to_json(rows: usize, cols: usize, circles: &[(usize, usize)], crosses: &[(usize, usize)], removed: &[(usize, usize)], created_at: u64) -> String {
+fn puzzle_to_json(
+    rows: usize,
+    cols: usize,
+    circles: &[(usize, usize)],
+    crosses: &[(usize, usize)],
+    removed: &[(usize, usize)],
+    created_at: u64,
+) -> String {
     let mut s = String::new();
     s.push('{');
-    s.push_str(&format!("\"rows\":{},\"cols\":{},\"created_at\":{},\"circles\":[", rows, cols, created_at));
+    s.push_str(&format!(
+        "\"rows\":{},\"cols\":{},\"created_at\":{},\"circles\":[",
+        rows, cols, created_at
+    ));
     for (i, &(r, c)) in circles.iter().enumerate() {
-        if i > 0 { s.push(','); }
+        if i > 0 {
+            s.push(',');
+        }
         s.push_str(&format!("[{},{}]", r, c));
     }
     s.push_str("],\"crosses\":[");
     for (i, &(r, c)) in crosses.iter().enumerate() {
-        if i > 0 { s.push(','); }
+        if i > 0 {
+            s.push(',');
+        }
         s.push_str(&format!("[{},{}]", r, c));
     }
     s.push_str("],\"removed\":[");
     for (i, &(r, c)) in removed.iter().enumerate() {
-        if i > 0 { s.push(','); }
+        if i > 0 {
+            s.push(',');
+        }
         s.push_str(&format!("[{},{}]", r, c));
     }
     s.push_str("]}");
@@ -46,7 +62,6 @@ fn save_puzzle_to_file(json: &str, created_at: u64) -> Result<PathBuf, Box<dyn s
     file.write_all(json.as_bytes())?;
     Ok(path)
 }
-
 
 pub fn show_create_placeholder(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -86,11 +101,11 @@ pub fn show_create_placeholder(
                 " Use + and - to change size of matrix ",
             )));
             lines.push(Spans::from(Span::raw(
-                " Backspace on empty cell to delete, Space on empty cell to add. Press R to restore all cells. ",
+                " Backspace on empty cell to delete. ",
             )));
-            lines.push(Spans::from(Span::raw(
-                " Press Enter to save puzzle. ",
-            )));
+            lines.push(Spans::from(Span::raw(" Space on empty cell to add. ")));
+            lines.push(Spans::from(Span::raw(" Press R to restore all cells. ")));
+            lines.push(Spans::from(Span::raw(" Press Enter to save puzzle. ")));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
 
             // compute height based on content, cap to terminal size and a reasonable max
@@ -149,8 +164,12 @@ pub fn show_create_placeholder(
                 }
                 KeyCode::Enter => {
                     // Serialize and save puzzle as JSON
-                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-                    let json = puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let json =
+                        puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
                     match save_puzzle_to_file(&json, now) {
                         Ok(path) => {
                             eprintln!("Saved puzzle to {}", path.display());
