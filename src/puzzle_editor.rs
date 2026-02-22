@@ -18,6 +18,7 @@ pub fn show_create_placeholder(
     let mut cursor = vec![(0usize, 0usize)];
     let mut circles: Vec<(usize, usize)> = Vec::new();
     let mut crosses: Vec<(usize, usize)> = Vec::new();
+    let mut removed: Vec<(usize, usize)> = Vec::new();
 
     loop {
         terminal.draw(|f| {
@@ -35,6 +36,7 @@ pub fn show_create_placeholder(
                 &cursor,
                 &circles,
                 &crosses,
+                &removed,
             ));
             lines.push(Spans::from(Span::raw("")));
             lines.push(Spans::from(Span::raw(
@@ -46,6 +48,10 @@ pub fn show_create_placeholder(
             lines.push(Spans::from(Span::raw(
                 " Use + and - to change size of matrix ",
             )));
+            lines.push(Spans::from(Span::raw(
+                " Backspace on empty cell to delete. Press R to restore all cells. ",
+            )));
+            lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
 
             // compute height based on content, cap to terminal size and a reasonable max
@@ -78,19 +84,23 @@ pub fn show_create_placeholder(
                 | KeyCode::Char('O')
                 | KeyCode::Char('x')
                 | KeyCode::Char('X')
-                | KeyCode::Backspace => edit_cell(key.code, &cursor, &mut circles, &mut crosses),
+                | KeyCode::Backspace => edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed),
                 KeyCode::Char('+') | KeyCode::Char('=') => {
                     // Increase matrix size (append to bottom/right)
                     increase_preview(&mut preview);
                 }
                 KeyCode::Char('-') => {
                     // Decrease matrix size and drop any marks that fall outside
-                    decrease_preview(&mut preview, &mut circles, &mut crosses);
+                    decrease_preview(&mut preview, &mut circles, &mut crosses, &mut removed);
                     // Ensure cursor remains within bounds
                     if let Some(pos) = cursor.get_mut(0) {
                         pos.0 = std::cmp::min(pos.0, preview.0.saturating_sub(1));
                         pos.1 = std::cmp::min(pos.1, preview.1.saturating_sub(1));
                     }
+                }
+                KeyCode::Char('r') | KeyCode::Char('R') => {
+                    // Restore all removed cells
+                    removed.clear();
                 }
                 code => move_cursor(&mut cursor, code, preview.0, preview.1),
             }
@@ -103,6 +113,7 @@ fn edit_cell(
     cursor: &[(usize, usize)],
     circles: &mut Vec<(usize, usize)>,
     crosses: &mut Vec<(usize, usize)>,
+    removed: &mut Vec<(usize, usize)>,
 ) {
     if cursor.is_empty() {
         return;
@@ -110,6 +121,8 @@ fn edit_cell(
     let pos = cursor[0];
     match key {
         KeyCode::Char('o') | KeyCode::Char('O') => {
+            // ignore if cell is removed
+            if removed.contains(&pos) { return; }
             // remove cross if present, add circle if missing
             if let Some(idx) = crosses.iter().position(|&p| p == pos) {
                 crosses.remove(idx);
@@ -119,6 +132,7 @@ fn edit_cell(
             }
         }
         KeyCode::Char('x') | KeyCode::Char('X') => {
+            if removed.contains(&pos) { return; }
             if let Some(idx) = circles.iter().position(|&p| p == pos) {
                 circles.remove(idx);
             }
@@ -129,9 +143,11 @@ fn edit_cell(
         KeyCode::Backspace => {
             if let Some(idx) = circles.iter().position(|&p| p == pos) {
                 circles.remove(idx);
-            }
-            if let Some(idx) = crosses.iter().position(|&p| p == pos) {
+            } else if let Some(idx) = crosses.iter().position(|&p| p == pos) {
                 crosses.remove(idx);
+            } else if !removed.contains(&pos) {
+                // delete the empty cell
+                removed.push(pos);
             }
         }
         _ => {}
@@ -169,6 +185,7 @@ fn create_matrix(
     cursor: &[(usize, usize)],
     circles: &[(usize, usize)],
     crosses: &[(usize, usize)],
+    removed: &[(usize, usize)],
 ) -> Vec<Spans<'static>> {
     let mut output: Vec<Spans<'static>> = Vec::new();
 
@@ -181,32 +198,45 @@ fn create_matrix(
             continue;
         }
 
-        // Top border: build per-column spans so we can highlight around cursor on filled cells
+        // Top border: draw only where cell is present
         let mut top_spans: Vec<Span> = Vec::new();
         for col in 0..cols {
-            let filled = circles.iter().any(|&(r, c)| r == 0 && c == col)
-                || crosses.iter().any(|&(r, c)| r == 0 && c == col);
-            let highlight = cursor.contains(&(0usize, col)) && filled;
-            if highlight {
-                top_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+            let present = !removed.contains(&(0usize, col));
+            if present {
+                let filled = circles.iter().any(|&(r, c)| r == 0 && c == col)
+                    || crosses.iter().any(|&(r, c)| r == 0 && c == col);
+                let highlight = cursor.contains(&(0usize, col)) && filled;
+                if highlight {
+                    top_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                } else {
+                    top_spans.push(Span::raw("─── "));
+                }
             } else {
-                top_spans.push(Span::raw("─── "));
+                top_spans.push(Span::raw("    "));
             }
         }
         output.push(Spans::from(top_spans));
 
         for row in 0..rows {
-            // Precompute occupancy for the row
+            // Precompute occupancy for the row including removed cells
             let mut circle_here = vec![false; cols];
             let mut cross_here = vec![false; cols];
+            let mut removed_here = vec![false; cols];
             for col in 0..cols {
                 circle_here[col] = circles.iter().any(|&(r, c)| r == row && c == col);
                 cross_here[col] = crosses.iter().any(|&(r, c)| r == row && c == col);
+                removed_here[col] = removed.iter().any(|&(r, c)| r == row && c == col);
             }
 
             // Content line: draw cells and separators with conditional highlighting
             let mut content_spans: Vec<Span> = Vec::new();
             for col in 0..cols {
+                // if cell removed, reserve full width
+                if removed_here[col] {
+                    content_spans.push(Span::raw("    "));
+                    continue;
+                }
+
                 // left padding
                 content_spans.push(Span::raw(" "));
 
@@ -235,17 +265,20 @@ fn create_matrix(
                 // right padding
                 content_spans.push(Span::raw(" "));
 
-                // separator between cells (vertical). Highlight if adjacent to a filled cursor cell
+                // separator between cells (vertical). Only draw if both adjacent cells are present
                 if col + 1 < cols {
-                    let left_cursor_filled =
-                        cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
-                    let right_cursor_filled = cursor.contains(&(row, col + 1))
-                        && (circles.iter().any(|&(r, c)| r == row && c == col + 1)
-                            || crosses.iter().any(|&(r, c)| r == row && c == col + 1));
-                    if left_cursor_filled || right_cursor_filled {
-                        content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                    if !removed_here[col] && !removed_here[col + 1] {
+                        let left_cursor_filled =
+                            cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
+                        let right_cursor_filled =
+                            cursor.contains(&(row, col + 1)) && (circle_here[col + 1] || cross_here[col + 1]);
+                        if left_cursor_filled || right_cursor_filled {
+                            content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                        } else {
+                            content_spans.push(Span::raw("│"));
+                        }
                     } else {
-                        content_spans.push(Span::raw("│"));
+                        content_spans.push(Span::raw(" "));
                     }
                 } else {
                     // trailing space for the last column
@@ -254,22 +287,32 @@ fn create_matrix(
             }
             output.push(Spans::from(content_spans));
 
-            // Border after row: highlight segments adjacent to a filled cursor cell (top or bottom)
+            // Border after row: draw horizontal only where both rows have present cell
             let mut border_spans: Vec<Span> = Vec::new();
             for col in 0..cols {
-                let top_adjacent =
-                    cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
-                let bottom_adjacent = if row + 1 < rows {
-                    let circle_below = circles.iter().any(|&(r, c)| r == row + 1 && c == col);
-                    let cross_below = crosses.iter().any(|&(r, c)| r == row + 1 && c == col);
-                    cursor.contains(&(row + 1, col)) && (circle_below || cross_below)
+                let top_present = !removed_here[col];
+                let bottom_present = if row + 1 < rows {
+                    !removed.iter().any(|&(r, c)| r == row + 1 && c == col)
                 } else {
                     false
                 };
-                if top_adjacent || bottom_adjacent {
-                    border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                if top_present && bottom_present {
+                    let top_adjacent =
+                        cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
+                    let bottom_adjacent = if row + 1 < rows {
+                        let circle_below = circles.iter().any(|&(r, c)| r == row + 1 && c == col);
+                        let cross_below = crosses.iter().any(|&(r, c)| r == row + 1 && c == col);
+                        cursor.contains(&(row + 1, col)) && (circle_below || cross_below)
+                    } else {
+                        false
+                    };
+                    if top_adjacent || bottom_adjacent {
+                        border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                    } else {
+                        border_spans.push(Span::raw("─── "));
+                    }
                 } else {
-                    border_spans.push(Span::raw("─── "));
+                    border_spans.push(Span::raw("    "));
                 }
             }
             output.push(Spans::from(border_spans));
@@ -284,15 +327,29 @@ fn create_matrix(
 
 fn increase_preview(size: &mut (usize, usize)) {
     const MAX_SIZE: usize = 12;
-    if size.0 < MAX_SIZE { size.0 += 1; }
-    if size.1 < MAX_SIZE { size.1 += 1; }
+    if size.0 < MAX_SIZE {
+        size.0 += 1;
+    }
+    if size.1 < MAX_SIZE {
+        size.1 += 1;
+    }
 }
 
-fn decrease_preview(size: &mut (usize, usize), circles: &mut Vec<(usize, usize)>, crosses: &mut Vec<(usize, usize)>) {
+fn decrease_preview(
+    size: &mut (usize, usize),
+    circles: &mut Vec<(usize, usize)>,
+    crosses: &mut Vec<(usize, usize)>,
+    removed: &mut Vec<(usize, usize)>,
+) {
     const MIN_SIZE: usize = 3;
-    if size.0 > MIN_SIZE { size.0 -= 1; }
-    if size.1 > MIN_SIZE { size.1 -= 1; }
+    if size.0 > MIN_SIZE {
+        size.0 -= 1;
+    }
+    if size.1 > MIN_SIZE {
+        size.1 -= 1;
+    }
     let (rows, cols) = *size;
     circles.retain(|&(r, c)| r < rows && c < cols);
     crosses.retain(|&(r, c)| r < rows && c < cols);
+    removed.retain(|&(r, c)| r < rows && c < cols);
 }
