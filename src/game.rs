@@ -18,18 +18,24 @@ use crate::rules::{check_lose_flat, is_win_flat};
 pub enum StartupMode {
     Play(generator::Difficulty),
     Create,
+    Browse,
 }
 
 pub fn select_mode(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
 ) -> Result<StartupMode, Box<dyn Error>> {
     let mut selection: usize = 0; // 0: Play, 1: Create
+    let options = [
+        "Play generated puzzle (WIP)",
+        "Create puzzle",
+        "Browse created puzzles",
+    ];
 
     loop {
         terminal.draw(|f| {
             let size = f.size();
-            let overlay_w = std::cmp::min(48, size.width.saturating_sub(4));
-            let overlay_h = 7u16;
+            let overlay_w = std::cmp::min(60, size.width.saturating_sub(4));
+            let overlay_h = 10u16;
             let ox = (size.width.saturating_sub(overlay_w)) / 2;
             let oy = (size.height.saturating_sub(overlay_h)) / 2;
             let area = Rect::new(ox, oy, overlay_w, overlay_h);
@@ -41,8 +47,7 @@ pub fn select_mode(
             )));
             lines.push(Spans::from(Span::raw("")));
 
-            let options = ["Play generated puzzle (WIP)", "Create puzzle"];
-            for i in 0..2 {
+            for i in 0..options.len() {
                 if i == selection {
                     lines.push(Spans::from(Span::styled(
                         format!("> {}", options[i]),
@@ -82,7 +87,7 @@ pub fn select_mode(
                         }
                     }
                     KeyCode::Down => {
-                        if selection < 1 {
+                        if selection < options.len() - 1 {
                             selection += 1;
                         }
                     }
@@ -92,18 +97,21 @@ pub fn select_mode(
                         }
                     }
                     KeyCode::Char('s') => {
-                        if selection < 1 {
+                        if selection < options.len() - 1 {
                             selection += 1;
                         }
                     }
                     KeyCode::Char('1') => selection = 0,
                     KeyCode::Char('2') => selection = 1,
+                    KeyCode::Char('3') => selection = 2,
                     KeyCode::Enter => {
                         if selection == 0 {
                             let diff = select_difficulty(terminal)?;
                             return Ok(StartupMode::Play(diff));
-                        } else {
+                        } else if selection == 1 {
                             return Ok(StartupMode::Create);
+                        } else if selection == 2 {
+                            return Ok(StartupMode::Browse);
                         }
                     }
                     _ => {}

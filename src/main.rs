@@ -11,6 +11,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 mod board;
+mod browser;
 mod game;
 mod generator;
 mod movement;
@@ -39,7 +40,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 DisableMouseCapture
             )?;
             terminal.show_cursor()?;
-            return Ok(());
+            Ok(())
+        }
+        Ok(game::StartupMode::Browse) => {
+            browser::show_browser(&mut terminal)?;
+            Ok(())
         }
         Err(_) => {
             // Restore terminal and exit without running the game
