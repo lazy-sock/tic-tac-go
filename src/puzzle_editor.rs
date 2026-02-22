@@ -100,6 +100,14 @@ pub fn show_create_placeholder(
                         pos.1 = std::cmp::min(pos.1, preview.1.saturating_sub(1));
                     }
                 }
+                KeyCode::Char(' ') => {
+                    // Restore the single removed cell under the cursor (if any)
+                    if let Some(&pos) = cursor.get(0) {
+                        if let Some(idx) = removed.iter().position(|&p| p == pos) {
+                            removed.remove(idx);
+                        }
+                    }
+                }
                 KeyCode::Char('r') | KeyCode::Char('R') => {
                     // Restore all removed cells
                     removed.clear();
