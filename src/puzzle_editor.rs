@@ -10,6 +10,43 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Span, Spans};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::time::Duration;
+use std::fs::{create_dir_all, File};
+use std::io::Write;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn puzzle_to_json(rows: usize, cols: usize, circles: &[(usize, usize)], crosses: &[(usize, usize)], removed: &[(usize, usize)], created_at: u64) -> String {
+    let mut s = String::new();
+    s.push('{');
+    s.push_str(&format!("\"rows\":{},\"cols\":{},\"created_at\":{},\"circles\":[", rows, cols, created_at));
+    for (i, &(r, c)) in circles.iter().enumerate() {
+        if i > 0 { s.push(','); }
+        s.push_str(&format!("[{},{}]", r, c));
+    }
+    s.push_str("],\"crosses\":[");
+    for (i, &(r, c)) in crosses.iter().enumerate() {
+        if i > 0 { s.push(','); }
+        s.push_str(&format!("[{},{}]", r, c));
+    }
+    s.push_str("],\"removed\":[");
+    for (i, &(r, c)) in removed.iter().enumerate() {
+        if i > 0 { s.push(','); }
+        s.push_str(&format!("[{},{}]", r, c));
+    }
+    s.push_str("]}");
+    s
+}
+
+fn save_puzzle_to_file(json: &str, created_at: u64) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let dir = PathBuf::from("puzzles");
+    create_dir_all(&dir)?;
+    let filename = format!("puzzle-{}.json", created_at);
+    let path = dir.join(filename);
+    let mut file = File::create(&path)?;
+    file.write_all(json.as_bytes())?;
+    Ok(path)
+}
+
 
 pub fn show_create_placeholder(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -51,7 +88,9 @@ pub fn show_create_placeholder(
             lines.push(Spans::from(Span::raw(
                 " Backspace on empty cell to delete, Space on empty cell to add. Press R to restore all cells. ",
             )));
-            lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
+            lines.push(Spans::from(Span::raw(
+                " Press Enter to save puzzle. ",
+            )));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
 
             // compute height based on content, cap to terminal size and a reasonable max
@@ -105,6 +144,19 @@ pub fn show_create_placeholder(
                     if let Some(&pos) = cursor.get(0) {
                         if let Some(idx) = removed.iter().position(|&p| p == pos) {
                             removed.remove(idx);
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    // Serialize and save puzzle as JSON
+                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                    let json = puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
+                    match save_puzzle_to_file(&json, now) {
+                        Ok(path) => {
+                            eprintln!("Saved puzzle to {}", path.display());
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to save puzzle: {}", e);
                         }
                     }
                 }
@@ -288,19 +340,23 @@ fn create_matrix(
                 if col + 1 < cols {
                     let left_present = !removed_here[col];
                     let right_present = !removed_here[col + 1];
-                    let left_cursor_marker = cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col] || removed_here[col]);
-                    let right_cursor_marker = cursor.contains(&(row, col + 1)) && (circle_here[col + 1] || cross_here[col + 1] || removed_here[col + 1]);
+                    let left_cursor_marker = cursor.contains(&(row, col))
+                        && (circle_here[col] || cross_here[col] || removed_here[col]);
+                    let right_cursor_marker = cursor.contains(&(row, col + 1))
+                        && (circle_here[col + 1] || cross_here[col + 1] || removed_here[col + 1]);
 
                     if left_present && right_present {
                         if left_cursor_marker || right_cursor_marker {
-                            content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                            content_spans
+                                .push(Span::styled("│", Style::default().fg(Color::Yellow)));
                         } else {
                             content_spans.push(Span::raw("│"));
                         }
                     } else {
                         // draw separator only if a cursor is adjacent to the gap
                         if left_cursor_marker || right_cursor_marker {
-                            content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                            content_spans
+                                .push(Span::styled("│", Style::default().fg(Color::Yellow)));
                         } else {
                             content_spans.push(Span::raw(" "));
                         }
@@ -343,7 +399,11 @@ fn create_matrix(
                 }
 
                 let top_present = !top_removed;
-                let bottom_present = if row + 1 < rows { !bottom_removed } else { true };
+                let bottom_present = if row + 1 < rows {
+                    !bottom_removed
+                } else {
+                    true
+                };
 
                 if top_present && bottom_present {
                     // highlight if cursor is adjacent to a filled cell
