@@ -294,7 +294,7 @@ fn create_matrix(
                 let bottom_present = if row + 1 < rows {
                     !removed.iter().any(|&(r, c)| r == row + 1 && c == col)
                 } else {
-                    false
+                    true
                 };
                 if top_present && bottom_present {
                     let top_adjacent =
