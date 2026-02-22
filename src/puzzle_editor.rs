@@ -49,7 +49,7 @@ pub fn show_create_placeholder(
                 " Use + and - to change size of matrix ",
             )));
             lines.push(Spans::from(Span::raw(
-                " Backspace on empty cell to delete. Press R to restore all cells. ",
+                " Backspace on empty cell to delete, Space on empty cell to add. Press R to restore all cells. ",
             )));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
             lines.push(Spans::from(Span::raw("Press q or Esc to return.")));
@@ -84,7 +84,9 @@ pub fn show_create_placeholder(
                 | KeyCode::Char('O')
                 | KeyCode::Char('x')
                 | KeyCode::Char('X')
-                | KeyCode::Backspace => edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed),
+                | KeyCode::Backspace => {
+                    edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed)
+                }
                 KeyCode::Char('+') | KeyCode::Char('=') => {
                     // Increase matrix size (append to bottom/right)
                     increase_preview(&mut preview);
@@ -122,7 +124,9 @@ fn edit_cell(
     match key {
         KeyCode::Char('o') | KeyCode::Char('O') => {
             // ignore if cell is removed
-            if removed.contains(&pos) { return; }
+            if removed.contains(&pos) {
+                return;
+            }
             // remove cross if present, add circle if missing
             if let Some(idx) = crosses.iter().position(|&p| p == pos) {
                 crosses.remove(idx);
@@ -132,7 +136,9 @@ fn edit_cell(
             }
         }
         KeyCode::Char('x') | KeyCode::Char('X') => {
-            if removed.contains(&pos) { return; }
+            if removed.contains(&pos) {
+                return;
+            }
             if let Some(idx) = circles.iter().position(|&p| p == pos) {
                 circles.remove(idx);
             }
@@ -198,21 +204,26 @@ fn create_matrix(
             continue;
         }
 
-        // Top border: draw only where cell is present
+        // Top border: draw top edges; highlight when cursor is on a cell (including removed cells)
         let mut top_spans: Vec<Span> = Vec::new();
         for col in 0..cols {
-            let present = !removed.contains(&(0usize, col));
-            if present {
+            let is_removed = removed.contains(&(0usize, col));
+            if !is_removed {
                 let filled = circles.iter().any(|&(r, c)| r == 0 && c == col)
                     || crosses.iter().any(|&(r, c)| r == 0 && c == col);
-                let highlight = cursor.contains(&(0usize, col)) && filled;
+                let highlight = cursor.contains(&(0usize, col)) && (filled);
                 if highlight {
                     top_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
                 } else {
                     top_spans.push(Span::raw("─── "));
                 }
             } else {
-                top_spans.push(Span::raw("    "));
+                // removed cell: show blank unless cursor is on it, then highlight top border
+                if cursor.contains(&(0usize, col)) {
+                    top_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                } else {
+                    top_spans.push(Span::raw("    "));
+                }
             }
         }
         output.push(Spans::from(top_spans));
@@ -231,16 +242,10 @@ fn create_matrix(
             // Content line: draw cells and separators with conditional highlighting
             let mut content_spans: Vec<Span> = Vec::new();
             for col in 0..cols {
-                // if cell removed, reserve full width
-                if removed_here[col] {
-                    content_spans.push(Span::raw("    "));
-                    continue;
-                }
-
                 // left padding
                 content_spans.push(Span::raw(" "));
 
-                // cell contents: circle, cross, cursor (only if empty), or empty
+                // cell contents: circle, cross, cursor (only if empty and cell present), or empty/removed
                 if circle_here[col] {
                     content_spans.push(Span::styled(
                         "o".to_string(),
@@ -251,7 +256,7 @@ fn create_matrix(
                         "x".to_string(),
                         Style::default().fg(Color::Red),
                     ));
-                } else if cursor.contains(&(row, col)) {
+                } else if cursor.contains(&(row, col)) && !removed_here[col] {
                     content_spans.push(Span::styled(
                         "●",
                         Style::default()
@@ -259,26 +264,33 @@ fn create_matrix(
                             .add_modifier(Modifier::BOLD),
                     ));
                 } else {
+                    // empty or removed cell; display blank content
                     content_spans.push(Span::raw(" "));
                 }
 
                 // right padding
                 content_spans.push(Span::raw(" "));
 
-                // separator between cells (vertical). Only draw if both adjacent cells are present
+                // separator between cells (vertical).
                 if col + 1 < cols {
-                    if !removed_here[col] && !removed_here[col + 1] {
-                        let left_cursor_filled =
-                            cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
-                        let right_cursor_filled =
-                            cursor.contains(&(row, col + 1)) && (circle_here[col + 1] || cross_here[col + 1]);
-                        if left_cursor_filled || right_cursor_filled {
+                    let left_present = !removed_here[col];
+                    let right_present = !removed_here[col + 1];
+                    let left_cursor_marker = cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col] || removed_here[col]);
+                    let right_cursor_marker = cursor.contains(&(row, col + 1)) && (circle_here[col + 1] || cross_here[col + 1] || removed_here[col + 1]);
+
+                    if left_present && right_present {
+                        if left_cursor_marker || right_cursor_marker {
                             content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
                         } else {
                             content_spans.push(Span::raw("│"));
                         }
                     } else {
-                        content_spans.push(Span::raw(" "));
+                        // draw separator only if a cursor is adjacent to the gap
+                        if left_cursor_marker || right_cursor_marker {
+                            content_spans.push(Span::styled("│", Style::default().fg(Color::Yellow)));
+                        } else {
+                            content_spans.push(Span::raw(" "));
+                        }
                     }
                 } else {
                     // trailing space for the last column
@@ -287,18 +299,24 @@ fn create_matrix(
             }
             output.push(Spans::from(content_spans));
 
-            // Border after row: draw horizontal only where both rows have present cell
+            // Border after row: draw horizontal; highlight when cursor is on a removed cell as well
             let mut border_spans: Vec<Span> = Vec::new();
             for col in 0..cols {
+                // if the current cell is removed but has the cursor, show highlighted border
+                if removed_here[col] && cursor.contains(&(row, col)) {
+                    border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                    continue;
+                }
+
                 let top_present = !removed_here[col];
                 let bottom_present = if row + 1 < rows {
                     !removed.iter().any(|&(r, c)| r == row + 1 && c == col)
                 } else {
                     true
                 };
+
                 if top_present && bottom_present {
-                    let top_adjacent =
-                        cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
+                    let top_adjacent = cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
                     let bottom_adjacent = if row + 1 < rows {
                         let circle_below = circles.iter().any(|&(r, c)| r == row + 1 && c == col);
                         let cross_below = crosses.iter().any(|&(r, c)| r == row + 1 && c == col);
