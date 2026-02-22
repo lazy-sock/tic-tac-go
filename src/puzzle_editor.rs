@@ -302,35 +302,50 @@ fn create_matrix(
             // Border after row: draw horizontal; highlight when cursor is on a removed cell as well
             let mut border_spans: Vec<Span> = Vec::new();
             for col in 0..cols {
-                // if the current cell is removed but has the cursor, show highlighted border
-                if removed_here[col] && cursor.contains(&(row, col)) {
+                let top_removed = removed_here[col];
+                let top_filled = circle_here[col] || cross_here[col];
+                let top_cursor = cursor.contains(&(row, col));
+
+                let bottom_removed = if row + 1 < rows {
+                    removed.iter().any(|&(r, c)| r == row + 1 && c == col)
+                } else {
+                    false
+                };
+                let bottom_filled = if row + 1 < rows {
+                    circles.iter().any(|&(r, c)| r == row + 1 && c == col)
+                        || crosses.iter().any(|&(r, c)| r == row + 1 && c == col)
+                } else {
+                    false
+                };
+                let bottom_cursor = if row + 1 < rows {
+                    cursor.contains(&(row + 1, col))
+                } else {
+                    false
+                };
+
+                // If either adjacent removed cell has the cursor, highlight the border
+                if (top_removed && top_cursor) || (bottom_removed && bottom_cursor) {
                     border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
                     continue;
                 }
 
-                let top_present = !removed_here[col];
-                let bottom_present = if row + 1 < rows {
-                    !removed.iter().any(|&(r, c)| r == row + 1 && c == col)
-                } else {
-                    true
-                };
+                let top_present = !top_removed;
+                let bottom_present = if row + 1 < rows { !bottom_removed } else { true };
 
                 if top_present && bottom_present {
-                    let top_adjacent = cursor.contains(&(row, col)) && (circle_here[col] || cross_here[col]);
-                    let bottom_adjacent = if row + 1 < rows {
-                        let circle_below = circles.iter().any(|&(r, c)| r == row + 1 && c == col);
-                        let cross_below = crosses.iter().any(|&(r, c)| r == row + 1 && c == col);
-                        cursor.contains(&(row + 1, col)) && (circle_below || cross_below)
-                    } else {
-                        false
-                    };
-                    if top_adjacent || bottom_adjacent {
+                    // highlight if cursor is adjacent to a filled cell
+                    if (top_cursor && top_filled) || (bottom_cursor && bottom_filled) {
                         border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
                     } else {
                         border_spans.push(Span::raw("─── "));
                     }
                 } else {
-                    border_spans.push(Span::raw("    "));
+                    // gap: highlight if cursor is adjacent at all
+                    if top_cursor || bottom_cursor {
+                        border_spans.push(Span::styled("─── ", Style::default().fg(Color::Yellow)));
+                    } else {
+                        border_spans.push(Span::raw("    "));
+                    }
                 }
             }
             output.push(Spans::from(border_spans));
