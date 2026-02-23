@@ -249,7 +249,18 @@ pub fn show_browser(
                     KeyCode::Enter => {
                         if !puzzles.is_empty() {
                             if let Some(p) = puzzles.get(selected) {
-                                eprintln!("Selected puzzle: {}", p.path.display());
+                                match load_puzzle_board(&p.path) {
+                                    Ok((board, circles, crosses, _removed, _created_at)) => {
+                                        // choose a player index (default to first circle)
+                                        let player_idx = if !circles.is_empty() { 0usize } else { 0usize };
+                                        if let Err(e) = crate::game::run_puzzle(terminal, board, circles, crosses, player_idx) {
+                                            eprintln!("Failed to run puzzle: {}", e);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to load puzzle: {}", e);
+                                    }
+                                }
                             }
                         }
                         return Ok(());

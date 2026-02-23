@@ -602,3 +602,347 @@ pub fn run_app(
 
     Ok(())
 }
+
+pub fn run_puzzle(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    board: Board,
+    mut circles: Vec<(usize, usize)>,
+    mut crosses: Vec<(usize, usize)>,
+    mut player_idx: usize,
+) -> Result<(), Box<dyn Error>> {
+    // Create board and helpers
+    let rows = board.rows;
+    let cols = board.cols;
+    let row_widths = &board.row_widths;
+    let to_flat = |r: usize, c: usize| board.to_flat(r, c);
+    let from_flat = |idx: usize| board.from_flat(idx);
+    let default_grid_w = board.default_grid_w;
+    let default_grid_h = board.default_grid_h;
+
+    if circles.is_empty() {
+        return Err("puzzle has no circles".into());
+    }
+    if player_idx >= circles.len() {
+        player_idx = 0;
+    }
+
+    // initial win/lose checks
+    let mut circles_flat_now: Vec<usize> = circles.iter().map(|&(r, c)| to_flat(r, c)).collect();
+    let mut crosses_flat_now: Vec<usize> = crosses.iter().map(|&(r, c)| to_flat(r, c)).collect();
+    let mut won = is_win_flat(&circles_flat_now, &board);
+    let mut lost = check_lose_flat(&crosses_flat_now, &board);
+
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+
+            // ensure grid fits terminal
+            let grid_w = if default_grid_w + 2 > size.width {
+                size.width.saturating_sub(2)
+            } else {
+                default_grid_w
+            };
+            let grid_h = if default_grid_h + 2 > size.height {
+                size.height.saturating_sub(2)
+            } else {
+                default_grid_h
+            };
+
+            let x = (size.width.saturating_sub(grid_w)) / 2;
+            let y = (size.height.saturating_sub(grid_h)) / 2;
+            let area = Rect::new(x, y, grid_w, grid_h);
+
+            let mut lines: Vec<Spans> = Vec::new();
+
+            // Top border (aggressive removal): horizontal dashes only where top cell exists
+            let mut top = String::new();
+            if rows > 0 {
+                for col in 0..cols {
+                    let present = col < row_widths[0] && board.is_cell_present(0, col);
+                    if present {
+                        top.push_str("─── ");
+                    } else {
+                        top.push_str("    ");
+                    }
+                }
+            } else {
+                for _ in 0..cols {
+                    top.push_str("    ");
+                }
+            }
+            lines.push(Spans::from(Span::raw(top)));
+
+            for row in 0..rows {
+                // Content line: draw only internal vertical separators between adjacent present cells
+                let mut span_line: Vec<Span> = Vec::new();
+                for col in 0..cols {
+                    let present = col < row_widths[row] && board.is_cell_present(row, col);
+                    if !present {
+                        // missing cell: reserve full cell width
+                        span_line.push(Span::raw("    "));
+                        continue;
+                    }
+                    let next_present =
+                        (col + 1) < row_widths[row] && board.is_cell_present(row, col + 1);
+
+                    if let Some(idx) = circles.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                        let is_player = idx == player_idx;
+                        let symbol = "o";
+                        let style = if is_player {
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::LightBlue)
+                        };
+                        span_line.push(Span::raw(" "));
+                        span_line.push(Span::styled(symbol.to_string(), style));
+                        span_line.push(Span::raw(if next_present { " │" } else { "  " }));
+                        continue;
+                    }
+                    if let Some(_) = crosses.iter().position(|&(rr, cc)| rr == row && cc == col) {
+                        let style = Style::default().fg(Color::Red);
+                        span_line.push(Span::raw(" "));
+                        span_line.push(Span::styled("x".to_string(), style));
+                        span_line.push(Span::raw(if next_present { " │" } else { "  " }));
+                        continue;
+                    }
+
+                    // empty present cell
+                    span_line.push(Span::raw(if next_present { "   │" } else { "    " }));
+                }
+                lines.push(Spans::from(span_line));
+
+                // Middle border or bottom - draw horizontal only where both rows have present cell (more aggressive)
+                if row != rows - 1 {
+                    let mut mid = String::new();
+                    for col in 0..cols {
+                        let top_here = col < row_widths[row] && board.is_cell_present(row, col);
+                        let bottom_here = if row + 1 < rows {
+                            col < row_widths[row + 1] && board.is_cell_present(row + 1, col)
+                        } else {
+                            false
+                        };
+                        if top_here && bottom_here {
+                            mid.push_str("─── ");
+                        } else {
+                            mid.push_str("    ");
+                        }
+                    }
+                    lines.push(Spans::from(Span::raw(mid)));
+                } else {
+                    let mut bot = String::new();
+                    for col in 0..cols {
+                        let bot_seg = col < row_widths[row] && board.is_cell_present(row, col);
+                        if bot_seg {
+                            bot.push_str("─── ");
+                        } else {
+                            bot.push_str("    ");
+                        }
+                    }
+                    lines.push(Spans::from(Span::raw(bot)));
+                }
+            }
+
+            let paragraph = Paragraph::new(lines).block(Block::default());
+            f.render_widget(paragraph, area);
+
+            // If won, render an overlay message centered on screen
+            if won {
+                let overlay_w = std::cmp::min(36, size.width.saturating_sub(4));
+                let overlay_h = 5u16;
+                let ox = (size.width.saturating_sub(overlay_w)) / 2;
+                let oy = (size.height.saturating_sub(overlay_h)) / 2;
+                let o_area = Rect::new(ox, oy, overlay_w, overlay_h);
+
+                let mut msg_lines: Vec<Spans> = Vec::new();
+                msg_lines.push(Spans::from(Span::raw("")));
+                msg_lines.push(Spans::from(Span::styled(
+                    " YOU WON! ",
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                msg_lines.push(Spans::from(Span::raw("")));
+                msg_lines.push(Spans::from(Span::styled(
+                    "press q to quit",
+                    Style::default().fg(Color::White).bg(Color::Black),
+                )));
+
+                let overlay = Paragraph::new(msg_lines)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().bg(Color::Black))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Victory")
+                            .style(Style::default().bg(Color::Black)),
+                    );
+                f.render_widget(Clear, o_area);
+                f.render_widget(
+                    Block::default().style(Style::default().bg(Color::Black)),
+                    o_area,
+                );
+                f.render_widget(overlay, o_area);
+            }
+
+            // If lost, render an overlay message centered on screen
+            if lost {
+                let overlay_w = std::cmp::min(36, size.width.saturating_sub(4));
+                let overlay_h = 5u16;
+                let ox = (size.width.saturating_sub(overlay_w)) / 2;
+                let oy = (size.height.saturating_sub(overlay_h)) / 2;
+                let o_area = Rect::new(ox, oy, overlay_w, overlay_h);
+
+                let mut msg_lines: Vec<Spans> = Vec::new();
+                msg_lines.push(Spans::from(Span::raw("")));
+                msg_lines.push(Spans::from(Span::styled(
+                    " YOU LOST! three crosses aligned ",
+                    Style::default()
+                        .fg(Color::White)
+                        .bg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
+                )));
+                msg_lines.push(Spans::from(Span::raw("")));
+                msg_lines.push(Spans::from(Span::styled(
+                    "press q to quit",
+                    Style::default().fg(Color::White).bg(Color::Black),
+                )));
+
+                let overlay = Paragraph::new(msg_lines)
+                    .alignment(Alignment::Center)
+                    .style(Style::default().bg(Color::Black))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("Defeat")
+                            .style(Style::default().bg(Color::Black)),
+                    );
+                f.render_widget(Clear, o_area);
+                f.render_widget(
+                    Block::default().style(Style::default().bg(Color::Black)),
+                    o_area,
+                );
+                f.render_widget(overlay, o_area);
+            }
+        })?;
+
+        // Input handling: arrows and WASD. movement blocked by walls and other objects
+        if event::poll(Duration::from_millis(150))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char(c) => match c.to_ascii_lowercase() {
+                        'q' => break,
+                        'w' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    -1,
+                                    0,
+                                    &board,
+                                )
+                            }
+                        }
+                        'a' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    0,
+                                    -1,
+                                    &board,
+                                )
+                            }
+                        }
+                        's' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    1,
+                                    0,
+                                    &board,
+                                )
+                            }
+                        }
+                        'd' => {
+                            if !won && !lost {
+                                movement::attempt_move_runtime(
+                                    &mut circles,
+                                    &mut crosses,
+                                    player_idx,
+                                    0,
+                                    1,
+                                    &board,
+                                )
+                            }
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Up => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                -1,
+                                0,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Left => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                0,
+                                -1,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Down => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                1,
+                                0,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Right => {
+                        if !won && !lost {
+                            movement::attempt_move_runtime(
+                                &mut circles,
+                                &mut crosses,
+                                player_idx,
+                                0,
+                                1,
+                                &board,
+                            )
+                        }
+                    }
+                    KeyCode::Esc => break,
+                    _ => {}
+                }
+            }
+            // re-evaluate win/lose state after handling input
+            circles_flat_now = circles.iter().map(|&(r, c)| to_flat(r, c)).collect();
+            crosses_flat_now = crosses.iter().map(|&(r, c)| to_flat(r, c)).collect();
+            won = is_win_flat(&circles_flat_now, &board);
+            lost = check_lose_flat(&crosses_flat_now, &board);
+        }
+    }
+
+    Ok(())
+}
