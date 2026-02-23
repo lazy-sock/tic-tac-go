@@ -72,6 +72,7 @@ pub fn show_create_placeholder(
     let mut crosses: Vec<(usize, usize)> = Vec::new();
     let mut removed: Vec<(usize, usize)> = Vec::new();
     let mut error_msg: Option<String> = None;
+    let mut success_msg: Option<String> = None;
 
     loop {
         terminal.draw(|f| {
@@ -151,6 +152,29 @@ pub fn show_create_placeholder(
                 f.render_widget(Clear, earea);
                 f.render_widget(err_para, earea);
             }
+
+            // show success popup if set
+            if let Some(msg) = &success_msg {
+                let ew = std::cmp::min(50, size.width.saturating_sub(10));
+                let eh = 5u16;
+                let ex = (size.width.saturating_sub(ew)) / 2;
+                let ey = (size.height.saturating_sub(eh)) / 2;
+                let earea = Rect::new(ex, ey, ew, eh);
+                let mut ok_lines: Vec<Spans> = Vec::new();
+                ok_lines.push(Spans::from(Span::styled(
+                    " Saved ",
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )));
+                ok_lines.push(Spans::from(Span::raw("")));
+                ok_lines.push(Spans::from(Span::raw(msg.as_str())));
+                ok_lines.push(Spans::from(Span::raw("")));
+                ok_lines.push(Spans::from(Span::raw("Press any key to return to home screen")));
+                let ok_para = Paragraph::new(ok_lines)
+                    .alignment(Alignment::Center)
+                    .block(Block::default().borders(Borders::ALL).title("Saved"));
+                f.render_widget(Clear, earea);
+                f.render_widget(ok_para, earea);
+            }
         })?;
 
         if event::poll(Duration::from_millis(150))?
@@ -159,6 +183,9 @@ pub fn show_create_placeholder(
             if error_msg.is_some() {
                 // clear error popup on any key press
                 error_msg = None;
+            } else if success_msg.is_some() {
+                // after successful save, any key returns to home screen
+                return Ok(());
             } else {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -204,10 +231,10 @@ pub fn show_create_placeholder(
                                 puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
                             match save_puzzle_to_file(&json, now) {
                                 Ok(path) => {
-                                    eprintln!("Saved puzzle to {}", path.display());
+                                    success_msg = Some(format!("Saved puzzle to {}", path.display()));
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to save puzzle: {}", e);
+                                    error_msg = Some(format!("Failed to save puzzle: {}", e));
                                 }
                             }
                         }
