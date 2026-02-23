@@ -71,6 +71,7 @@ pub fn show_create_placeholder(
     let mut circles: Vec<(usize, usize)> = Vec::new();
     let mut crosses: Vec<(usize, usize)> = Vec::new();
     let mut removed: Vec<(usize, usize)> = Vec::new();
+    let mut error_msg: Option<String> = None;
 
     loop {
         terminal.draw(|f| {
@@ -127,63 +128,96 @@ pub fn show_create_placeholder(
                 area,
             );
             f.render_widget(para, area);
+
+            // show error popup if set
+            if let Some(err) = &error_msg {
+                let ew = std::cmp::min(50, size.width.saturating_sub(10));
+                let eh = 5u16;
+                let ex = (size.width.saturating_sub(ew)) / 2;
+                let ey = (size.height.saturating_sub(eh)) / 2;
+                let earea = Rect::new(ex, ey, ew, eh);
+                let mut err_lines: Vec<Spans> = Vec::new();
+                err_lines.push(Spans::from(Span::styled(
+                    " Error ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )));
+                err_lines.push(Spans::from(Span::raw("")));
+                err_lines.push(Spans::from(Span::raw(err.as_str())));
+                err_lines.push(Spans::from(Span::raw("")));
+                err_lines.push(Spans::from(Span::raw("Press any key to continue")));
+                let err_para = Paragraph::new(err_lines)
+                    .alignment(Alignment::Center)
+                    .block(Block::default().borders(Borders::ALL).title("Error"));
+                f.render_widget(Clear, earea);
+                f.render_widget(err_para, earea);
+            }
         })?;
 
         if event::poll(Duration::from_millis(150))?
             && let Event::Key(key) = event::read()?
         {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Char('o')
-                | KeyCode::Char('O')
-                | KeyCode::Char('x')
-                | KeyCode::Char('X')
-                | KeyCode::Backspace => {
-                    edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed)
-                }
-                KeyCode::Char('+') | KeyCode::Char('=') => {
-                    // Increase matrix size (append to bottom/right)
-                    increase_preview(&mut preview);
-                }
-                KeyCode::Char('-') => {
-                    // Decrease matrix size and drop any marks that fall outside
-                    decrease_preview(&mut preview, &mut circles, &mut crosses, &mut removed);
-                    // Ensure cursor remains within bounds
-                    if let Some(pos) = cursor.get_mut(0) {
-                        pos.0 = std::cmp::min(pos.0, preview.0.saturating_sub(1));
-                        pos.1 = std::cmp::min(pos.1, preview.1.saturating_sub(1));
+            if error_msg.is_some() {
+                // clear error popup on any key press
+                error_msg = None;
+            } else {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('o')
+                    | KeyCode::Char('O')
+                    | KeyCode::Char('x')
+                    | KeyCode::Char('X')
+                    | KeyCode::Backspace => {
+                        edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed)
                     }
-                }
-                KeyCode::Char(' ') => {
-                    // Restore the single removed cell under the cursor (if any)
-                    if let Some(&pos) = cursor.get(0) {
-                        if let Some(idx) = removed.iter().position(|&p| p == pos) {
-                            removed.remove(idx);
+                    KeyCode::Char('+') | KeyCode::Char('=') => {
+                        // Increase matrix size (append to bottom/right)
+                        increase_preview(&mut preview);
+                    }
+                    KeyCode::Char('-') => {
+                        // Decrease matrix size and drop any marks that fall outside
+                        decrease_preview(&mut preview, &mut circles, &mut crosses, &mut removed);
+                        // Ensure cursor remains within bounds
+                        if let Some(pos) = cursor.get_mut(0) {
+                            pos.0 = std::cmp::min(pos.0, preview.0.saturating_sub(1));
+                            pos.1 = std::cmp::min(pos.1, preview.1.saturating_sub(1));
                         }
                     }
-                }
-                KeyCode::Enter => {
-                    // Serialize and save puzzle as JSON
-                    let now = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-                    let json =
-                        puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
-                    match save_puzzle_to_file(&json, now) {
-                        Ok(path) => {
-                            eprintln!("Saved puzzle to {}", path.display());
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to save puzzle: {}", e);
+                    KeyCode::Char(' ') => {
+                        // Restore the single removed cell under the cursor (if any)
+                        if let Some(&pos) = cursor.get(0) {
+                            if let Some(idx) = removed.iter().position(|&p| p == pos) {
+                                removed.remove(idx);
+                            }
                         }
                     }
+                    KeyCode::Enter => {
+                        // Validate circle count before saving
+                        if circles.len() != 3 {
+                            error_msg = Some(format!("Puzzle must contain exactly 3 circles; found {}.", circles.len()));
+                        } else {
+                            // Serialize and save puzzle as JSON
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            let json =
+                                puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
+                            match save_puzzle_to_file(&json, now) {
+                                Ok(path) => {
+                                    eprintln!("Saved puzzle to {}", path.display());
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to save puzzle: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char('r') | KeyCode::Char('R') => {
+                        // Restore all removed cells
+                        removed.clear();
+                    }
+                    code => move_cursor(&mut cursor, code, preview.0, preview.1),
                 }
-                KeyCode::Char('r') | KeyCode::Char('R') => {
-                    // Restore all removed cells
-                    removed.clear();
-                }
-                code => move_cursor(&mut cursor, code, preview.0, preview.1),
             }
         }
     }
