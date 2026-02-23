@@ -10,6 +10,8 @@ use ratatui::{
     style::{Style, Color, Modifier},
 };
 
+use crate::board::Board;
+
 struct PuzzleItem {
     path: PathBuf,
     file_name: String,
@@ -36,6 +38,103 @@ fn parse_number(s: &str, key: &str) -> Option<u64> {
         }
     }
     None
+}
+
+fn parse_pairs(s: &str, key: &str) -> Vec<(usize, usize)> {
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    if let Some(pos) = s.find(key) {
+        // find the first '[' after the key
+        if let Some(rel) = s[pos..].find('[') {
+            let start = pos + rel;
+            let bytes = s.as_bytes();
+            let mut depth: i32 = 0;
+            let mut end = start;
+            for i in start..bytes.len() {
+                match bytes[i] as char {
+                    '[' => depth += 1,
+                    ']' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if end > start {
+                let sub = &s[start..=end];
+                // collect numbers
+                let mut nums: Vec<usize> = Vec::new();
+                let mut cur = String::new();
+                for ch in sub.chars() {
+                    if ch.is_ascii_digit() {
+                        cur.push(ch);
+                    } else {
+                        if !cur.is_empty() {
+                            if let Ok(n) = cur.parse::<usize>() {
+                                nums.push(n);
+                            }
+                            cur.clear();
+                        }
+                    }
+                }
+                // group into pairs
+                let mut it = nums.chunks(2);
+                for chunk in it {
+                    if chunk.len() == 2 {
+                        pairs.push((chunk[0], chunk[1]));
+                    }
+                }
+            }
+        }
+    }
+    pairs
+}
+
+fn board_from_dims(rows: usize, cols: usize, removed: &[(usize, usize)]) -> Result<Board, Box<dyn std::error::Error>> {
+    if rows == 0 || cols == 0 {
+        return Err("Invalid rows or cols".into());
+    }
+    let row_widths = vec![cols; rows];
+    let mut row_offsets = vec![0usize; rows];
+    for i in 1..rows {
+        row_offsets[i] = row_offsets[i - 1] + row_widths[i - 1];
+    }
+    let total_cells = row_offsets[rows - 1] + row_widths[rows - 1];
+    let default_grid_w: u16 = (4 * cols + 1) as u16;
+    let default_grid_h: u16 = (2 * rows + 1) as u16;
+    let mut cells = vec![true; total_cells];
+    for &(r, c) in removed.iter() {
+        if r < rows && c < cols {
+            let idx = row_offsets[r] + c;
+            if idx < total_cells {
+                cells[idx] = false;
+            }
+        }
+    }
+    Ok(Board {
+        rows,
+        cols,
+        row_widths,
+        row_offsets,
+        total_cells,
+        cells,
+        default_grid_w,
+        default_grid_h,
+    })
+}
+
+fn load_puzzle_board(path: &PathBuf) -> Result<(Board, Vec<(usize, usize)>, Vec<(usize, usize)>, Vec<(usize, usize)>, Option<u64>), Box<dyn std::error::Error>> {
+    let contents = fs::read_to_string(path)?;
+    let rows = parse_number(&contents, "\"rows\":").ok_or("missing rows")? as usize;
+    let cols = parse_number(&contents, "\"cols\":").ok_or("missing cols")? as usize;
+    let created_at = parse_number(&contents, "\"created_at\":");
+    let circles = parse_pairs(&contents, "\"circles\":");
+    let crosses = parse_pairs(&contents, "\"crosses\":");
+    let removed = parse_pairs(&contents, "\"removed\":");
+    let board = board_from_dims(rows, cols, &removed)?;
+    Ok((board, circles, crosses, removed, created_at))
 }
 
 fn read_puzzles() -> Vec<PuzzleItem> {
