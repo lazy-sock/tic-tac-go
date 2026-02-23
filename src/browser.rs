@@ -72,8 +72,27 @@ pub fn show_browser(
     loop {
         terminal.draw(|f| {
             let size = f.size();
+
+            // Cap the browser overlay to a reasonable maximum roughly equal to
+            // two-thirds of a 1920x1080 screen (approx 1280×720 pixels).
+            // Using approximate character cell size (8×16 px) this maps to ~160 cols × 45 rows.
+            const SCREEN_W_PX: u16 = 1920;
+            const SCREEN_H_PX: u16 = 1080;
+            const MAX_W_PX: u16 = SCREEN_W_PX * 2 / 3;
+            const MAX_H_PX: u16 = SCREEN_H_PX * 2 / 3;
+            const PX_PER_COL: u16 = 8;
+            const PX_PER_ROW: u16 = 16;
+            let max_cols = (MAX_W_PX / PX_PER_COL).max(20u16); // ensure sane minimum
+            let max_rows = (MAX_H_PX / PX_PER_ROW).max(10u16);
+
+            let overlay_w = std::cmp::min(size.width.saturating_sub(4), max_cols);
+            let overlay_h = std::cmp::min(size.height.saturating_sub(4), max_rows);
+
+            let ox = (size.width.saturating_sub(overlay_w)) / 2;
+            let oy = (size.height.saturating_sub(overlay_h)) / 2;
+            let area = Rect::new(ox, oy, overlay_w, overlay_h);
+
             let block = Block::default().title("browser").borders(Borders::ALL);
-            let area = Rect::new(0, 0, size.width, size.height);
             f.render_widget(block, area);
 
             // Build list lines
