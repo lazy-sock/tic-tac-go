@@ -17,6 +17,7 @@ mod generator;
 mod movement;
 mod puzzle_editor;
 mod rules;
+mod solver;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Setup terminal
