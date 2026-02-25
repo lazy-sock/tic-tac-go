@@ -92,6 +92,37 @@ fn parse_pairs(s: &str, key: &str) -> Vec<(usize, usize)> {
     pairs
 }
 
+fn parse_pair_single(s: &str, key: &str) -> Option<(usize, usize)> {
+    if let Some(pos) = s.find(key) {
+        if let Some(rel) = s[pos..].find('[') {
+            let start = pos + rel;
+            let bytes = s.as_bytes();
+            let mut nums: Vec<usize> = Vec::new();
+            let mut cur = String::new();
+            for i in start..bytes.len() {
+                let ch = bytes[i] as char;
+                if ch.is_ascii_digit() {
+                    cur.push(ch);
+                } else {
+                    if !cur.is_empty() {
+                        if let Ok(n) = cur.parse::<usize>() {
+                            nums.push(n);
+                        }
+                        cur.clear();
+                    }
+                    if ch == ']' {
+                        break;
+                    }
+                }
+            }
+            if nums.len() >= 2 {
+                return Some((nums[0], nums[1]));
+            }
+        }
+    }
+    None
+}
+
 fn board_from_dims(rows: usize, cols: usize, removed: &[(usize, usize)]) -> Result<Board, Box<dyn std::error::Error>> {
     if rows == 0 || cols == 0 {
         return Err("Invalid rows or cols".into());
@@ -125,7 +156,7 @@ fn board_from_dims(rows: usize, cols: usize, removed: &[(usize, usize)]) -> Resu
     })
 }
 
-fn load_puzzle_board(path: &PathBuf) -> Result<(Board, Vec<(usize, usize)>, Vec<(usize, usize)>, Vec<(usize, usize)>, Option<u64>), Box<dyn std::error::Error>> {
+fn load_puzzle_board(path: &PathBuf) -> Result<(Board, Vec<(usize, usize)>, Vec<(usize, usize)>, Vec<(usize, usize)>, Option<(usize, usize)>, Option<u64>), Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(path)?;
     let rows = parse_number(&contents, "\"rows\":").ok_or("missing rows")? as usize;
     let cols = parse_number(&contents, "\"cols\":").ok_or("missing cols")? as usize;
@@ -133,8 +164,9 @@ fn load_puzzle_board(path: &PathBuf) -> Result<(Board, Vec<(usize, usize)>, Vec<
     let circles = parse_pairs(&contents, "\"circles\":");
     let crosses = parse_pairs(&contents, "\"crosses\":");
     let removed = parse_pairs(&contents, "\"removed\":");
+    let player = parse_pair_single(&contents, "\"player\":");
     let board = board_from_dims(rows, cols, &removed)?;
-    Ok((board, circles, crosses, removed, created_at))
+    Ok((board, circles, crosses, removed, player, created_at))
 }
 
 fn read_puzzles() -> Vec<PuzzleItem> {
@@ -250,9 +282,13 @@ pub fn show_browser(
                         if !puzzles.is_empty() {
                             if let Some(p) = puzzles.get(selected) {
                                 match load_puzzle_board(&p.path) {
-                                    Ok((board, circles, crosses, _removed, _created_at)) => {
-                                        // choose a player index (default to first circle)
-                                        let player_idx = if !circles.is_empty() { 0usize } else { 0usize };
+                                    Ok((board, circles, crosses, _removed, player, _created_at)) => {
+                                        // determine player index (if player marked, find its index among circles)
+                                        let player_idx = if let Some(player_pos) = player {
+                                            circles.iter().position(|&p| p == player_pos).unwrap_or(0usize)
+                                        } else {
+                                            if !circles.is_empty() { 0usize } else { 0usize }
+                                        };
                                         if let Err(e) = crate::game::run_puzzle(terminal, board, circles, crosses, player_idx) {
                                             eprintln!("Failed to run puzzle: {}", e);
                                         }

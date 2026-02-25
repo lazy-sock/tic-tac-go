@@ -21,6 +21,7 @@ fn puzzle_to_json(
     circles: &[(usize, usize)],
     crosses: &[(usize, usize)],
     removed: &[(usize, usize)],
+    player: Option<(usize, usize)>,
     created_at: u64,
 ) -> String {
     let mut s = String::new();
@@ -49,7 +50,13 @@ fn puzzle_to_json(
         }
         s.push_str(&format!("[{},{}]", r, c));
     }
-    s.push_str("]}");
+    s.push_str(",\"player\":");
+    if let Some((r, c)) = player {
+        s.push_str(&format!("[{},{}]", r, c));
+    } else {
+        s.push_str("null");
+    }
+    s.push_str("}");
     s
 }
 
@@ -71,6 +78,8 @@ pub fn show_create_placeholder(
     let mut circles: Vec<(usize, usize)> = Vec::new();
     let mut crosses: Vec<(usize, usize)> = Vec::new();
     let mut removed: Vec<(usize, usize)> = Vec::new();
+    // track a single player O (optional)
+    let mut player: Option<(usize, usize)> = None;
     let mut error_msg: Option<String> = None;
     let mut success_msg: Option<String> = None;
 
@@ -91,6 +100,7 @@ pub fn show_create_placeholder(
                 &circles,
                 &crosses,
                 &removed,
+                player,
             ));
             lines.push(Spans::from(Span::raw("")));
             lines.push(Spans::from(Span::raw(
@@ -194,7 +204,7 @@ pub fn show_create_placeholder(
                     | KeyCode::Char('x')
                     | KeyCode::Char('X')
                     | KeyCode::Backspace => {
-                        edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed)
+                        edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed, &mut player)
                     }
                     KeyCode::Char('+') | KeyCode::Char('=') => {
                         // Increase matrix size (append to bottom/right)
@@ -202,7 +212,7 @@ pub fn show_create_placeholder(
                     }
                     KeyCode::Char('-') => {
                         // Decrease matrix size and drop any marks that fall outside
-                        decrease_preview(&mut preview, &mut circles, &mut crosses, &mut removed);
+                        decrease_preview(&mut preview, &mut circles, &mut crosses, &mut removed, &mut player);
                         // Ensure cursor remains within bounds
                         if let Some(pos) = cursor.get_mut(0) {
                             pos.0 = std::cmp::min(pos.0, preview.0.saturating_sub(1));
@@ -228,7 +238,7 @@ pub fn show_create_placeholder(
                                 .unwrap_or_default()
                                 .as_secs();
                             let json =
-                                puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, now);
+                                puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, player, now);
                             match save_puzzle_to_file(&json, now) {
                                 Ok(path) => {
                                     success_msg = Some(format!("Saved puzzle to {}", path.display()));
@@ -256,6 +266,7 @@ fn edit_cell(
     circles: &mut Vec<(usize, usize)>,
     crosses: &mut Vec<(usize, usize)>,
     removed: &mut Vec<(usize, usize)>,
+    player: &mut Option<(usize, usize)>,
 ) {
     if cursor.is_empty() {
         return;
@@ -270,6 +281,11 @@ fn edit_cell(
             // remove cross if present
             if let Some(idx) = crosses.iter().position(|&p| p == pos) {
                 crosses.remove(idx);
+            }
+            // if there's already a circle at this position, mark it as the player
+            if circles.contains(&pos) {
+                *player = Some(pos);
+                return;
             }
             // add circle if missing, but enforce a maximum of 3
             if !circles.contains(&pos) {
@@ -286,6 +302,10 @@ fn edit_cell(
             }
             if let Some(idx) = circles.iter().position(|&p| p == pos) {
                 circles.remove(idx);
+                // if the removed circle was the player, clear player
+                if player.as_ref().map(|p| *p == pos).unwrap_or(false) {
+                    *player = None;
+                }
             }
             if !crosses.contains(&pos) {
                 crosses.push(pos);
@@ -294,11 +314,18 @@ fn edit_cell(
         KeyCode::Backspace => {
             if let Some(idx) = circles.iter().position(|&p| p == pos) {
                 circles.remove(idx);
+                if player.as_ref().map(|p| *p == pos).unwrap_or(false) {
+                    *player = None;
+                }
             } else if let Some(idx) = crosses.iter().position(|&p| p == pos) {
                 crosses.remove(idx);
             } else if !removed.contains(&pos) {
                 // delete the empty cell
                 removed.push(pos);
+                // if player was on this cell, clear it
+                if player.as_ref().map(|p| *p == pos).unwrap_or(false) {
+                    *player = None;
+                }
             }
         }
         _ => {}
@@ -337,6 +364,7 @@ fn create_matrix(
     circles: &[(usize, usize)],
     crosses: &[(usize, usize)],
     removed: &[(usize, usize)],
+    player: Option<(usize, usize)>,
 ) -> Vec<Spans<'static>> {
     let mut output: Vec<Spans<'static>> = Vec::new();
 
@@ -392,10 +420,18 @@ fn create_matrix(
 
                 // cell contents: circle, cross, cursor (only if empty and cell present), or empty/removed
                 if circle_here[col] {
-                    content_spans.push(Span::styled(
-                        "o".to_string(),
-                        Style::default().fg(Color::LightBlue),
-                    ));
+                    let is_player = player.map(|p| p == (row, col)).unwrap_or(false);
+                    if is_player {
+                        content_spans.push(Span::styled(
+                            "o".to_string(),
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        content_spans.push(Span::styled(
+                            "o".to_string(),
+                            Style::default().fg(Color::LightBlue),
+                        ));
+                    }
                 } else if cross_here[col] {
                     content_spans.push(Span::styled(
                         "x".to_string(),
@@ -526,6 +562,7 @@ fn decrease_preview(
     circles: &mut Vec<(usize, usize)>,
     crosses: &mut Vec<(usize, usize)>,
     removed: &mut Vec<(usize, usize)>,
+    player: &mut Option<(usize, usize)>,
 ) {
     const MIN_SIZE: usize = 3;
     if size.0 > MIN_SIZE {
@@ -538,4 +575,9 @@ fn decrease_preview(
     circles.retain(|&(r, c)| r < rows && c < cols);
     crosses.retain(|&(r, c)| r < rows && c < cols);
     removed.retain(|&(r, c)| r < rows && c < cols);
+    if let Some((r, c)) = *player {
+        if r >= rows || c >= cols {
+            *player = None;
+        }
+    }
 }
