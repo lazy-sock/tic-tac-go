@@ -12,6 +12,7 @@ use ratatui::backend::CrosstermBackend;
 
 mod board;
 mod browser;
+mod database;
 mod game;
 mod generator;
 mod movement;
