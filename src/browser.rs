@@ -199,6 +199,7 @@ pub fn show_browser(
 ) -> Result<(), Box<dyn Error>> {
     let mut puzzles = read_puzzles();
     let mut selected: usize = 0;
+    let mut status_msg: Option<String> = None;
 
     loop {
         terminal.draw(|f| {
@@ -223,16 +224,23 @@ pub fn show_browser(
             let oy = (size.height.saturating_sub(overlay_h)) / 2;
             let area = Rect::new(ox, oy, overlay_w, overlay_h);
 
-            let block = Block::default().title("browser").borders(Borders::ALL);
+            let block = Block::default().title("Puzzle Browser").borders(Borders::ALL);
             f.render_widget(block, area);
 
             // Build list lines
             let mut lines: Vec<Spans> = Vec::new();
             lines.push(Spans::from(Span::styled(
-                " Puzzles (Enter=select, q=quit) ",
+                " Available puzzles (Enter=select, d=delete, q=quit) ",
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
+            if let Some(ref msg) = status_msg {
+                lines.push(Spans::from(Span::styled(
+                    msg.as_str(),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )));
+                lines.push(Spans::from(Span::raw("")));
+            }
             if puzzles.is_empty() {
                 lines.push(Spans::from(Span::raw(
                     "No puzzles found. Create some via Create mode.",
@@ -268,6 +276,28 @@ pub fn show_browser(
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('d') => {
+                        if !puzzles.is_empty() {
+                            if let Some(p) = puzzles.get(selected) {
+                                let file_name = p.file_name.clone();
+                                let path = p.path.clone();
+                                match fs::remove_file(&path) {
+                                    Ok(()) => {
+                                        status_msg = Some(format!("Deleted {}", file_name));
+                                        puzzles = read_puzzles();
+                                        if puzzles.is_empty() {
+                                            selected = 0;
+                                        } else if selected >= puzzles.len() {
+                                            selected = puzzles.len() - 1;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        status_msg = Some(format!("Failed to delete {}: {}", file_name, e));
+                                    }
+                                }
+                            }
+                        }
+                    }
                     KeyCode::Up | KeyCode::Char('k') => {
                         if selected > 0 {
                             selected -= 1;
