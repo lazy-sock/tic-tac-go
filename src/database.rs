@@ -65,6 +65,43 @@ pub fn upload(
 ) -> Result<String, Box<dyn Error>> {
     let client = Client::new();
 
+    // If SUPABASE_URL and SUPABASE_KEY are set, insert the puzzle into the
+    // 'puzzles' table using PostgREST (Supabase) so no GitHub token is required.
+    if let (Ok(supabase_url), Ok(supabase_key)) = (std::env::var("SUPABASE_URL"), std::env::var("SUPABASE_KEY")) {
+        let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
+        // extract file name from path (last path segment)
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(path);
+        let v: Value = serde_json::from_str(json_content)?;
+        let body = serde_json::json!({"file_name": file_name, "content": v});
+        let resp = client
+            .post(&url)
+            .header(ACCEPT, "application/json")
+            .header(USER_AGENT, "tic-tac-go")
+            .header("apikey", &supabase_key)
+            .header(AUTHORIZATION, format!("Bearer {}", &supabase_key))
+            .header("Prefer", "return=representation")
+            .json(&body)
+            .send()?;
+        match resp.status() {
+            reqwest::StatusCode::CREATED | reqwest::StatusCode::OK => {
+                let arr: Value = resp.json()?;
+                if let Some(first) = arr.get(0) {
+                    if let Some(id) = first.get("id") {
+                        return Ok(id.to_string());
+                    }
+                }
+                return Ok(String::new());
+            }
+            s => {
+                let text = resp.text().unwrap_or_default();
+                return Err(format!("supabase insert failed: {} - {}", s, text).into());
+            }
+        }
+    }
+
     // If no token provided, attempt to commit & push using the user's local git
     // credentials (SSH keys / credential helper) so users don't need to set up
     // a GITHUB_TOKEN for simple pushes from their machine.
