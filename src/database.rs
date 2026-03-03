@@ -39,7 +39,8 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
     }
 
     let resp = req.send()?;
-    if resp.status().is_success() {
+    let status = resp.status();
+    if status.is_success() {
         let arr: Value = resp.json()?;
         if let Some(first) = arr.get(0) {
             if let Some(id) = first.get("id") {
@@ -49,7 +50,7 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
         Ok(String::new())
     } else {
         let text = resp.text().unwrap_or_default();
-        Err(format!("supabase upload failed: {} - {}", resp.status(), text).into())
+        Err(format!("supabase upload failed: {} - {}", status, text).into())
     }
 }
 

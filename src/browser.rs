@@ -390,16 +390,12 @@ pub fn show_browser(
                         } else if let Some(p) = puzzles.get(selected) {
                             match fs::read_to_string(&p.path) {
                                 Ok(json) => {
-                                    let owner = "lazy-sock";
-                                    let repo = "tic-tac-go";
-                                    let repo_path = format!("puzzles/{}", p.file_name);
-                                    let token = std::env::var("GITHUB_TOKEN").unwrap_or_default();
-                                    match upload(owner, repo, &repo_path, None, token.as_str(), &json, "add puzzle") {
-                                        Ok(sha) => {
-                                            if sha.is_empty() {
+                                    match upload(&p.file_name, &json) {
+                                        Ok(id) => {
+                                            if id.is_empty() {
                                                 status_msg = Some(format!("Uploaded {}", p.file_name));
                                             } else {
-                                                status_msg = Some(format!("Uploaded {} (sha {})", p.file_name, sha));
+                                                status_msg = Some(format!("Uploaded {} (id {})", p.file_name, id));
                                             }
                                         }
                                         Err(e) => {
