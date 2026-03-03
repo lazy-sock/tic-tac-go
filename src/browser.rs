@@ -1,16 +1,16 @@
-use std::{error::Error, io::Stdout, time::Duration, fs, path::PathBuf};
+use std::{error::Error, fs, io::Stdout, path::PathBuf, time::Duration};
 
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    layout::{Rect, Alignment},
-    widgets::{Block, Borders, Paragraph},
+    layout::{Alignment, Rect},
+    style::{Color, Modifier, Style},
     text::{Span, Spans},
-    style::{Style, Color, Modifier},
+    widgets::{Block, Borders, Paragraph},
 };
 
-use crate::board::Board;
+use crate::{board::Board, database::upload};
 
 struct PuzzleItem {
     path: PathBuf,
@@ -24,7 +24,9 @@ fn parse_number(s: &str, key: &str) -> Option<u64> {
     if let Some(pos) = s.find(key) {
         let mut i = pos + key.len();
         let bytes = s.as_bytes();
-        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r' || bytes[i] == b'\t') {
+        while i < bytes.len()
+            && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r' || bytes[i] == b'\t')
+        {
             i += 1;
         }
         let start = i;
@@ -123,7 +125,11 @@ fn parse_pair_single(s: &str, key: &str) -> Option<(usize, usize)> {
     None
 }
 
-fn board_from_dims(rows: usize, cols: usize, removed: &[(usize, usize)]) -> Result<Board, Box<dyn std::error::Error>> {
+fn board_from_dims(
+    rows: usize,
+    cols: usize,
+    removed: &[(usize, usize)],
+) -> Result<Board, Box<dyn std::error::Error>> {
     if rows == 0 || cols == 0 {
         return Err("Invalid rows or cols".into());
     }
@@ -156,7 +162,19 @@ fn board_from_dims(rows: usize, cols: usize, removed: &[(usize, usize)]) -> Resu
     })
 }
 
-fn load_puzzle_board(path: &PathBuf) -> Result<(Board, Vec<(usize, usize)>, Vec<(usize, usize)>, Vec<(usize, usize)>, Option<(usize, usize)>, Option<u64>), Box<dyn std::error::Error>> {
+fn load_puzzle_board(
+    path: &PathBuf,
+) -> Result<
+    (
+        Board,
+        Vec<(usize, usize)>,
+        Vec<(usize, usize)>,
+        Vec<(usize, usize)>,
+        Option<(usize, usize)>,
+        Option<u64>,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let contents = fs::read_to_string(path)?;
     let rows = parse_number(&contents, "\"rows\":").ok_or("missing rows")? as usize;
     let cols = parse_number(&contents, "\"cols\":").ok_or("missing cols")? as usize;
@@ -174,19 +192,37 @@ fn read_puzzles() -> Vec<PuzzleItem> {
     if let Ok(entries) = fs::read_dir("puzzles") {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() { continue; }
+            if !path.is_file() {
+                continue;
+            }
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if ext.eq_ignore_ascii_case("json") {
-                let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                let file_name = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_string();
                 let mut rows = 0usize;
                 let mut cols = 0usize;
                 let mut created_at = None;
                 if let Ok(contents) = fs::read_to_string(&path) {
-                    if let Some(r) = parse_number(&contents, "\"rows\":") { rows = r as usize; }
-                    if let Some(c) = parse_number(&contents, "\"cols\":") { cols = c as usize; }
-                    if let Some(ts) = parse_number(&contents, "\"created_at\":") { created_at = Some(ts); }
+                    if let Some(r) = parse_number(&contents, "\"rows\":") {
+                        rows = r as usize;
+                    }
+                    if let Some(c) = parse_number(&contents, "\"cols\":") {
+                        cols = c as usize;
+                    }
+                    if let Some(ts) = parse_number(&contents, "\"created_at\":") {
+                        created_at = Some(ts);
+                    }
                 }
-                puzzles.push(PuzzleItem { path, file_name, rows, cols, created_at });
+                puzzles.push(PuzzleItem {
+                    path,
+                    file_name,
+                    rows,
+                    cols,
+                    created_at,
+                });
             }
         }
     }
@@ -224,20 +260,24 @@ pub fn show_browser(
             let oy = (size.height.saturating_sub(overlay_h)) / 2;
             let area = Rect::new(ox, oy, overlay_w, overlay_h);
 
-            let block = Block::default().title("Puzzle Browser").borders(Borders::ALL);
+            let block = Block::default()
+                .title("Puzzle Browser")
+                .borders(Borders::ALL);
             f.render_widget(block, area);
 
             // Build list lines
             let mut lines: Vec<Spans> = Vec::new();
             lines.push(Spans::from(Span::styled(
-                " Available puzzles (Enter=select, d=delete, q=quit) ",
+                " Available puzzles (Enter=select, d=delete, q=quit, u=upload) ",
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
             if let Some(ref msg) = status_msg {
                 lines.push(Spans::from(Span::styled(
                     msg.as_str(),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 lines.push(Spans::from(Span::raw("")));
             }
@@ -292,7 +332,8 @@ pub fn show_browser(
                                         }
                                     }
                                     Err(e) => {
-                                        status_msg = Some(format!("Failed to delete {}: {}", file_name, e));
+                                        status_msg =
+                                            Some(format!("Failed to delete {}: {}", file_name, e));
                                     }
                                 }
                             }
@@ -312,14 +353,26 @@ pub fn show_browser(
                         if !puzzles.is_empty() {
                             if let Some(p) = puzzles.get(selected) {
                                 match load_puzzle_board(&p.path) {
-                                    Ok((board, circles, crosses, _removed, player, _created_at)) => {
+                                    Ok((
+                                        board,
+                                        circles,
+                                        crosses,
+                                        _removed,
+                                        player,
+                                        _created_at,
+                                    )) => {
                                         // determine player index (if player marked, find its index among circles)
                                         let player_idx = if let Some(player_pos) = player {
-                                            circles.iter().position(|&p| p == player_pos).unwrap_or(0usize)
+                                            circles
+                                                .iter()
+                                                .position(|&p| p == player_pos)
+                                                .unwrap_or(0usize)
                                         } else {
                                             if !circles.is_empty() { 0usize } else { 0usize }
                                         };
-                                        if let Err(e) = crate::game::run_puzzle(terminal, board, circles, crosses, player_idx) {
+                                        if let Err(e) = crate::game::run_puzzle(
+                                            terminal, board, circles, crosses, player_idx,
+                                        ) {
                                             eprintln!("Failed to run puzzle: {}", e);
                                         }
                                     }
@@ -330,6 +383,41 @@ pub fn show_browser(
                             }
                         }
                         return Ok(());
+                    }
+                    KeyCode::Char('u') => {
+                        if puzzles.is_empty() {
+                            status_msg = Some("No puzzle to upload".to_string());
+                        } else if let Some(p) = puzzles.get(selected) {
+                            match fs::read_to_string(&p.path) {
+                                Ok(json) => {
+                                    let owner = "lazy-sock";
+                                    let repo = "tic-tac-go";
+                                    let repo_path = format!("puzzles/{}", p.file_name);
+                                    let token = std::env::var("GITHUB_TOKEN").unwrap_or_default();
+                                    match upload(owner, repo, &repo_path, None, token.as_str(), &json, "add puzzle") {
+                                        Ok(sha) => {
+                                            if sha.is_empty() {
+                                                status_msg = Some(format!("Uploaded {}", p.file_name));
+                                            } else {
+                                                status_msg = Some(format!("Uploaded {} (sha {})", p.file_name, sha));
+                                            }
+                                        }
+                                        Err(e) => {
+                                            status_msg = Some(format!("Upload failed: {}", e));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    status_msg = Some(format!("Failed to read {}: {}", p.file_name, e));
+                                }
+                            }
+                            puzzles = read_puzzles();
+                            if puzzles.is_empty() {
+                                selected = 0;
+                            } else if selected >= puzzles.len() {
+                                selected = puzzles.len() - 1;
+                            }
+                        }
                     }
                     _ => {}
                 }

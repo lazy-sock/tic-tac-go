@@ -30,7 +30,7 @@ pub fn download(
         .header(USER_AGENT, "tic-tac-go");
 
     if let Some(t) = token {
-        req = req.header(AUTHORIZATION, format!("Bearer {}", t));
+        req = req.header(AUTHORIZATION, format!("token {}", t));
     }
 
     let resp = req.send()?;
@@ -65,6 +65,10 @@ pub fn upload(
 ) -> Result<String, Box<dyn Error>> {
     let client = Client::new();
 
+    if token.is_empty() {
+        return Err("GITHUB_TOKEN is empty; set GITHUB_TOKEN env variable to a personal access token with repo scope.".into());
+    }
+
     // Try to GET the file to obtain its current sha (if any)
     let mut get_url = format!("https://api.github.com/repos/{}/{}/contents/{}", owner, repo, path);
     if let Some(br) = branch {
@@ -76,7 +80,7 @@ pub fn upload(
         .header(ACCEPT, "application/vnd.github+json")
         .header(USER_AGENT, "tic-tac-go");
     if !token.is_empty() {
-        get_req = get_req.header(AUTHORIZATION, format!("Bearer {}", token));
+        get_req = get_req.header(AUTHORIZATION, format!("token {}", token));
     }
 
     let sha = match get_req.send()? {
@@ -111,7 +115,7 @@ pub fn upload(
         .header(USER_AGENT, "tic-tac-go")
         .json(&body);
     if !token.is_empty() {
-        put_req = put_req.header(AUTHORIZATION, format!("Bearer {}", token));
+        put_req = put_req.header(AUTHORIZATION, format!("token {}", token));
     }
 
     let resp = put_req.send()?;
