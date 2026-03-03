@@ -65,8 +65,54 @@ pub fn upload(
 ) -> Result<String, Box<dyn Error>> {
     let client = Client::new();
 
+    // If no token provided, attempt to commit & push using the user's local git
+    // credentials (SSH keys / credential helper) so users don't need to set up
+    // a GITHUB_TOKEN for simple pushes from their machine.
     if token.is_empty() {
-        return Err("GITHUB_TOKEN is empty; set GITHUB_TOKEN env variable to a personal access token with repo scope.".into());
+        // Add the path to the index
+        let add_status = std::process::Command::new("git")
+            .args(&["add", path])
+            .status()?;
+        if !add_status.success() {
+            return Err(format!("git add failed with exit code: {}", add_status.code().unwrap_or(-1)).into());
+        }
+
+        // Check if anything is staged for this path
+        let diff_out = std::process::Command::new("git")
+            .args(&["diff", "--staged", "--name-only", "--", path])
+            .output()?;
+        if !diff_out.status.success() {
+            return Err(format!("git diff --staged failed with exit code: {}", diff_out.status.code().unwrap_or(-1)).into());
+        }
+
+        if diff_out.stdout.is_empty() {
+            // Nothing to commit; try to push current branch (in case there are local commits to push)
+            let push_status = std::process::Command::new("git")
+                .args(&["push", "origin", "HEAD"]) 
+                .status()?;
+            if !push_status.success() {
+                return Err(format!("git push failed with exit code: {}", push_status.code().unwrap_or(-1)).into());
+            }
+            return Ok(String::new());
+        }
+
+        // Commit staged changes for this path
+        let commit_status = std::process::Command::new("git")
+            .args(&["commit", "-m", commit_message, "--", path])
+            .status()?;
+        if !commit_status.success() {
+            return Err(format!("git commit failed with exit code: {}", commit_status.code().unwrap_or(-1)).into());
+        }
+
+        // Push the commit
+        let push_status = std::process::Command::new("git")
+            .args(&["push", "origin", "HEAD"]) 
+            .status()?;
+        if !push_status.success() {
+            return Err(format!("git push failed with exit code: {}", push_status.code().unwrap_or(-1)).into());
+        }
+
+        return Ok(String::new());
     }
 
     // Try to GET the file to obtain its current sha (if any)
