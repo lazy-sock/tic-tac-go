@@ -56,6 +56,54 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
     }
 }
 
+pub fn list_puzzles() -> Result<Vec<(String, Option<u64>)>, Box<dyn Error>> {
+    let _ = dotenv().ok();
+    let supabase_url = env::var("SUPABASE_URL")
+        .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
+    let maybe_key = env::var("SUPABASE_ANON_KEY").ok()
+        .or_else(|| env::var("SUPABASE_SERVICE_ROLE_KEY").ok())
+        .or_else(|| env::var("SUPABASE_KEY").ok());
+
+    let client = Client::new();
+    let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
+
+    let mut req = client.get(&url)
+        .header(ACCEPT, "application/json")
+        .header(USER_AGENT, "tic-tac-go")
+        .query(&[("select", "file_name,created_at")]);
+
+    if let Some(ref k) = maybe_key {
+        req = req.header("apikey", k.as_str()).header(AUTHORIZATION, format!("Bearer {}", k));
+    }
+
+    let resp = req.send()?;
+    let status = resp.status();
+    if status.is_success() {
+        let arr: Value = resp.json()?;
+        let mut out = Vec::new();
+        if let Some(list) = arr.as_array() {
+            for item in list {
+                if let Some(name) = item.get("file_name").and_then(|v| v.as_str()) {
+                    let created_at = item.get("created_at").and_then(|v| {
+                        if v.is_number() {
+                            v.as_i64().map(|n| n as u64)
+                        } else if v.is_string() {
+                            v.as_str().and_then(|s| s.parse::<u64>().ok())
+                        } else {
+                            None
+                        }
+                    });
+                    out.push((name.to_string(), created_at));
+                }
+            }
+        }
+        Ok(out)
+    } else {
+        let text = resp.text().unwrap_or_default();
+        Err(format!("supabase list failed: {} - {}", status, text).into())
+    }
+}
+
 /// Download a puzzle by file_name from Supabase puzzles table.
 /// Returns the content JSON as string.
 pub fn download(file_name: &str) -> Result<String, Box<dyn Error>> {

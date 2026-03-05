@@ -1,4 +1,4 @@
-use std::{error::Error, fs, io::Stdout, path::PathBuf, time::Duration};
+use std::{error::Error, fs, io::Stdout, path::PathBuf, sync::mpsc, thread, time::{Duration, SystemTime}};
 
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::{
@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Clear, Wrap},
 };
 
-use crate::{board::Board, database::upload};
+use crate::{board::Board, database::{upload, download, list_puzzles}};
 
 struct PuzzleItem {
     path: PathBuf,
@@ -238,7 +238,45 @@ pub fn show_browser(
     let mut status_msg: Option<String> = None;
     let mut error_popup: Option<String> = None;
 
+    // Background channels for remote list and downloads
+    let (list_tx, list_rx) = mpsc::channel::<Result<Vec<(String, Option<u64>)>, String>>();
+    let (dl_tx, dl_rx) = mpsc::channel::<Result<(String, String), String>>();
+
+    // Remote view state
+    let mut remote_mode: bool = false;
+    let mut remote_puzzles: Vec<(String, Option<u64>)> = Vec::new();
+    let mut selected_remote: usize = 0;
+    let mut fetching_remote: bool = false;
+    let mut downloading: bool = false;
+
     loop {
+        // Poll background results without blocking the UI
+        if let Ok(res) = list_rx.try_recv() {
+            fetching_remote = false;
+            match res {
+                Ok(list) => {
+                    remote_puzzles = list;
+                    selected_remote = 0;
+                    status_msg = Some(format!("Fetched {} remote puzzles", remote_puzzles.len()));
+                }
+                Err(e) => {
+                    error_popup = Some(e);
+                }
+            }
+        }
+        if let Ok(res) = dl_rx.try_recv() {
+            downloading = false;
+            match res {
+                Ok((saved_path, original_name)) => {
+                    status_msg = Some(format!("Imported {} -> {}", original_name, saved_path));
+                    puzzles = read_puzzles();
+                }
+                Err(e) => {
+                    error_popup = Some(e);
+                }
+            }
+        }
+
         terminal.draw(|f| {
             let size = f.size();
 
@@ -268,11 +306,17 @@ pub fn show_browser(
 
             // Build list lines
             let mut lines: Vec<Spans> = Vec::new();
+            let header = if remote_mode {
+                " Remote puzzles (Enter=import, g=refresh, t=local, q=quit) "
+            } else {
+                " Available puzzles (Enter=select, d=delete, q=quit, u=upload, t=remote) "
+            };
             lines.push(Spans::from(Span::styled(
-                " Available puzzles (Enter=select, d=delete, q=quit, u=upload) ",
+                header,
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             lines.push(Spans::from(Span::raw("")));
+
             if let Some(ref msg) = status_msg {
                 lines.push(Spans::from(Span::styled(
                     msg.as_str(),
@@ -282,23 +326,49 @@ pub fn show_browser(
                 )));
                 lines.push(Spans::from(Span::raw("")));
             }
-            if puzzles.is_empty() {
-                lines.push(Spans::from(Span::raw(
-                    "No puzzles found. Create some via Create mode.",
-                )));
+
+            if !remote_mode {
+                if puzzles.is_empty() {
+                    lines.push(Spans::from(Span::raw(
+                        "No puzzles found. Create some via Create mode.",
+                    )));
+                } else {
+                    for (i, p) in puzzles.iter().enumerate() {
+                        let label = match p.created_at {
+                            Some(ts) => format!("{}  —  {}x{}  —  {}", p.file_name, p.rows, p.cols, ts),
+                            None => format!("{}  —  {}x{}", p.file_name, p.rows, p.cols),
+                        };
+                        if i == selected {
+                            lines.push(Spans::from(Span::styled(
+                                label,
+                                Style::default().bg(Color::Yellow).fg(Color::Black),
+                            )));
+                        } else {
+                            lines.push(Spans::from(Span::raw(label)));
+                        }
+                    }
+                }
             } else {
-                for (i, p) in puzzles.iter().enumerate() {
-                    let label = match p.created_at {
-                        Some(ts) => format!("{}  —  {}x{}  —  {}", p.file_name, p.rows, p.cols, ts),
-                        None => format!("{}  —  {}x{}", p.file_name, p.rows, p.cols),
-                    };
-                    if i == selected {
-                        lines.push(Spans::from(Span::styled(
-                            label,
-                            Style::default().bg(Color::Yellow).fg(Color::Black),
-                        )));
+                if remote_puzzles.is_empty() {
+                    if fetching_remote {
+                        lines.push(Spans::from(Span::raw("Fetching remote puzzles...")));
                     } else {
-                        lines.push(Spans::from(Span::raw(label)));
+                        lines.push(Spans::from(Span::raw("No remote puzzles. Press g to refresh.")));
+                    }
+                } else {
+                    for (i, p) in remote_puzzles.iter().enumerate() {
+                        let label = match p.1 {
+                            Some(ts) => format!("{}  —  {}", p.0, ts),
+                            None => format!("{}", p.0),
+                        };
+                        if i == selected_remote {
+                            lines.push(Spans::from(Span::styled(
+                                label,
+                                Style::default().bg(Color::Yellow).fg(Color::Black),
+                            )));
+                        } else {
+                            lines.push(Spans::from(Span::raw(label)));
+                        }
                     }
                 }
             }
@@ -347,8 +417,79 @@ pub fn show_browser(
                     error_popup = None;
                 } else {
                     match key.code {
+                        KeyCode::Char('t') => {
+                            remote_mode = !remote_mode;
+                            if remote_mode && remote_puzzles.is_empty() {
+                                fetching_remote = true;
+                                let tx = list_tx.clone();
+                                thread::spawn(move || {
+                                    match crate::database::list_puzzles() {
+                                        Ok(list) => { let _ = tx.send(Ok(list)); },
+                                        Err(e) => { let _ = tx.send(Err(format!("{}", e))); }
+                                    }
+                                });
+                            }
+                            status_msg = Some(if remote_mode { "Switched to remote view".to_string() } else { "Switched to local view".to_string() });
+                        }
+                        KeyCode::Char('g') => {
+                            if remote_mode {
+                                fetching_remote = true;
+                                let tx = list_tx.clone();
+                                thread::spawn(move || {
+                                    match crate::database::list_puzzles() {
+                                        Ok(list) => { let _ = tx.send(Ok(list)); },
+                                        Err(e) => { let _ = tx.send(Err(format!("{}", e))); }
+                                    }
+                                });
+                                status_msg = Some("Refreshing remote list".to_string());
+                            }
+                        }
+                        KeyCode::Char('i') | KeyCode::Enter if remote_mode => {
+                            if remote_puzzles.is_empty() {
+                                status_msg = Some("No remote puzzle to import".to_string());
+                            } else if downloading {
+                                status_msg = Some("Download already in progress".to_string());
+                            } else {
+                                let fname = remote_puzzles.get(selected_remote).map(|p| p.0.clone()).unwrap_or_default();
+                                downloading = true;
+                                let tx = dl_tx.clone();
+                                thread::spawn(move || {
+                                    match crate::database::download(&fname) {
+                                        Ok(content) => {
+                                            if serde_json::from_str::<serde_json::Value>(&content).is_err() {
+                                                let _ = tx.send(Err(format!("Downloaded content invalid JSON for '{}'", fname)));
+                                                return;
+                                            }
+                                            let safe = std::path::Path::new(&fname).file_name().and_then(|s| s.to_str()).unwrap_or(&fname).to_string().replace("/", "_");
+                                            let dir = std::path::Path::new("puzzles");
+                                            let _ = std::fs::create_dir_all(&dir);
+                                            let mut path = dir.join(&safe);
+                                            if path.exists() {
+                                                let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
+                                                let stem = std::path::Path::new(&safe).file_stem().and_then(|s| s.to_str()).unwrap_or("puzzle");
+                                                let ext = std::path::Path::new(&safe).extension().and_then(|s| s.to_str()).unwrap_or("json");
+                                                let newname = format!("{}-import-{}.{}", stem, now, ext);
+                                                path = dir.join(newname);
+                                            }
+                                            match std::fs::write(&path, content) {
+                                                Ok(()) => {
+                                                    let _ = tx.send(Ok((path.to_string_lossy().to_string(), fname)));
+                                                }
+                                                Err(e) => {
+                                                    let _ = tx.send(Err(format!("Failed to save {}: {}", fname, e)));
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let _ = tx.send(Err(format!("Download failed for {}: {}", fname, e)));
+                                        }
+                                    }
+                                });
+                                status_msg = Some(format!("Importing {}", fname));
+                            }
+                        }
                         KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Char('d') => {
+                        KeyCode::Char('d') if !remote_mode => {
                             if !puzzles.is_empty() {
                                 if let Some(p) = puzzles.get(selected) {
                                     let file_name = p.file_name.clone();
@@ -371,16 +512,28 @@ pub fn show_browser(
                             }
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
-                            if selected > 0 {
-                                selected -= 1;
+                            if remote_mode {
+                                if selected_remote > 0 {
+                                    selected_remote -= 1;
+                                }
+                            } else {
+                                if selected > 0 {
+                                    selected -= 1;
+                                }
                             }
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
-                            if !puzzles.is_empty() && selected + 1 < puzzles.len() {
-                                selected += 1;
+                            if remote_mode {
+                                if !remote_puzzles.is_empty() && selected_remote + 1 < remote_puzzles.len() {
+                                    selected_remote += 1;
+                                }
+                            } else {
+                                if !puzzles.is_empty() && selected + 1 < puzzles.len() {
+                                    selected += 1;
+                                }
                             }
                         }
-                        KeyCode::Enter => {
+                        KeyCode::Enter if !remote_mode => {
                             if !puzzles.is_empty() {
                                 if let Some(p) = puzzles.get(selected) {
                                     match load_puzzle_board(&p.path) {
@@ -415,7 +568,7 @@ pub fn show_browser(
                             }
                             return Ok(());
                         }
-                        KeyCode::Char('u') => {
+                        KeyCode::Char('u') if !remote_mode => {
                             if puzzles.is_empty() {
                                 status_msg = Some("No puzzle to upload".to_string());
                             } else if let Some(p) = puzzles.get(selected) {
