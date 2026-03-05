@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Clear, Wrap},
 };
 
 use crate::{board::Board, database::upload};
@@ -236,6 +236,7 @@ pub fn show_browser(
     let mut puzzles = read_puzzles();
     let mut selected: usize = 0;
     let mut status_msg: Option<String> = None;
+    let mut error_popup: Option<String> = None;
 
     loop {
         terminal.draw(|f| {
@@ -310,112 +311,143 @@ pub fn show_browser(
             );
             let para = Paragraph::new(lines).alignment(Alignment::Left);
             f.render_widget(para, inner);
+
+            // show error popup if set
+            if let Some(ref err) = error_popup {
+                let max_w = size.width.saturating_sub(10);
+                let ew = std::cmp::min(max_w, 80u16);
+                let mut err_lines: Vec<Spans> = Vec::new();
+                err_lines.push(Spans::from(Span::styled(
+                    " Error ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )));
+                err_lines.push(Spans::from(Span::raw("")));
+                for line in err.lines() {
+                    err_lines.push(Spans::from(Span::styled(line, Style::default().fg(Color::Red))));
+                }
+                err_lines.push(Spans::from(Span::raw("")));
+                err_lines.push(Spans::from(Span::raw("Press any key to close")));
+                let eh = std::cmp::min((err_lines.len() as u16) + 4, size.height.saturating_sub(4));
+                let ex = (size.width.saturating_sub(ew)) / 2;
+                let ey = (size.height.saturating_sub(eh)) / 2;
+                let earea = Rect::new(ex, ey, ew, eh);
+                let err_para = Paragraph::new(err_lines)
+                    .alignment(Alignment::Left)
+                    .block(Block::default().borders(Borders::ALL).title("Error"))
+                    .wrap(Wrap { trim: true });
+                f.render_widget(Clear, earea);
+                f.render_widget(err_para, earea);
+            }
         })?;
 
         if event::poll(Duration::from_millis(150))? {
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                    KeyCode::Char('d') => {
-                        if !puzzles.is_empty() {
-                            if let Some(p) = puzzles.get(selected) {
-                                let file_name = p.file_name.clone();
-                                let path = p.path.clone();
-                                match fs::remove_file(&path) {
-                                    Ok(()) => {
-                                        status_msg = Some(format!("Deleted {}", file_name));
-                                        puzzles = read_puzzles();
-                                        if puzzles.is_empty() {
-                                            selected = 0;
-                                        } else if selected >= puzzles.len() {
-                                            selected = puzzles.len() - 1;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        status_msg =
-                                            Some(format!("Failed to delete {}: {}", file_name, e));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if selected > 0 {
-                            selected -= 1;
-                        }
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if !puzzles.is_empty() && selected + 1 < puzzles.len() {
-                            selected += 1;
-                        }
-                    }
-                    KeyCode::Enter => {
-                        if !puzzles.is_empty() {
-                            if let Some(p) = puzzles.get(selected) {
-                                match load_puzzle_board(&p.path) {
-                                    Ok((
-                                        board,
-                                        circles,
-                                        crosses,
-                                        _removed,
-                                        player,
-                                        _created_at,
-                                    )) => {
-                                        // determine player index (if player marked, find its index among circles)
-                                        let player_idx = if let Some(player_pos) = player {
-                                            circles
-                                                .iter()
-                                                .position(|&p| p == player_pos)
-                                                .unwrap_or(0usize)
-                                        } else {
-                                            if !circles.is_empty() { 0usize } else { 0usize }
-                                        };
-                                        if let Err(e) = crate::game::run_puzzle(
-                                            terminal, board, circles, crosses, player_idx,
-                                        ) {
-                                            eprintln!("Failed to run puzzle: {}", e);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to load puzzle: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                        return Ok(());
-                    }
-                    KeyCode::Char('u') => {
-                        if puzzles.is_empty() {
-                            status_msg = Some("No puzzle to upload".to_string());
-                        } else if let Some(p) = puzzles.get(selected) {
-                            match fs::read_to_string(&p.path) {
-                                Ok(json) => {
-                                    match upload(&p.file_name, &json) {
-                                        Ok(id) => {
-                                            if id.is_empty() {
-                                                status_msg = Some(format!("Uploaded {}", p.file_name));
-                                            } else {
-                                                status_msg = Some(format!("Uploaded {} (id {})", p.file_name, id));
+                if error_popup.is_some() {
+                    // close error popup on any key press
+                    error_popup = None;
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                        KeyCode::Char('d') => {
+                            if !puzzles.is_empty() {
+                                if let Some(p) = puzzles.get(selected) {
+                                    let file_name = p.file_name.clone();
+                                    let path = p.path.clone();
+                                    match fs::remove_file(&path) {
+                                        Ok(()) => {
+                                            status_msg = Some(format!("Deleted {}", file_name));
+                                            puzzles = read_puzzles();
+                                            if puzzles.is_empty() {
+                                                selected = 0;
+                                            } else if selected >= puzzles.len() {
+                                                selected = puzzles.len() - 1;
                                             }
                                         }
                                         Err(e) => {
-                                            status_msg = Some(format!("Upload failed: {}", e));
+                                            error_popup = Some(format!("Failed to delete {}: {}", file_name, e));
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    status_msg = Some(format!("Failed to read {}: {}", p.file_name, e));
-                                }
-                            }
-                            puzzles = read_puzzles();
-                            if puzzles.is_empty() {
-                                selected = 0;
-                            } else if selected >= puzzles.len() {
-                                selected = puzzles.len() - 1;
                             }
                         }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if selected > 0 {
+                                selected -= 1;
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if !puzzles.is_empty() && selected + 1 < puzzles.len() {
+                                selected += 1;
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if !puzzles.is_empty() {
+                                if let Some(p) = puzzles.get(selected) {
+                                    match load_puzzle_board(&p.path) {
+                                        Ok((
+                                            board,
+                                            circles,
+                                            crosses,
+                                            _removed,
+                                            player,
+                                            _created_at,
+                                        )) => {
+                                            // determine player index (if player marked, find its index among circles)
+                                            let player_idx = if let Some(player_pos) = player {
+                                                circles
+                                                    .iter()
+                                                    .position(|&p| p == player_pos)
+                                                    .unwrap_or(0usize)
+                                            } else {
+                                                if !circles.is_empty() { 0usize } else { 0usize }
+                                            };
+                                            if let Err(e) = crate::game::run_puzzle(
+                                                terminal, board, circles, crosses, player_idx,
+                                            ) {
+                                                eprintln!("Failed to run puzzle: {}", e);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to load puzzle: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            return Ok(());
+                        }
+                        KeyCode::Char('u') => {
+                            if puzzles.is_empty() {
+                                status_msg = Some("No puzzle to upload".to_string());
+                            } else if let Some(p) = puzzles.get(selected) {
+                                match fs::read_to_string(&p.path) {
+                                    Ok(json) => {
+                                        match upload(&p.file_name, &json) {
+                                            Ok(id) => {
+                                                if id.is_empty() {
+                                                    status_msg = Some(format!("Uploaded {}", p.file_name));
+                                                } else {
+                                                    status_msg = Some(format!("Uploaded {} (id {})", p.file_name, id));
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error_popup = Some(format!("Upload failed: {}", e));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error_popup = Some(format!("Failed to read {}: {}", p.file_name, e));
+                                    }
+                                }
+                                puzzles = read_puzzles();
+                                if puzzles.is_empty() {
+                                    selected = 0;
+                                } else if selected >= puzzles.len() {
+                                    selected = puzzles.len() - 1;
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
