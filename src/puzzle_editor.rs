@@ -24,40 +24,36 @@ fn puzzle_to_json(
     player: Option<(usize, usize)>,
     created_at: u64,
 ) -> String {
-    let mut s = String::new();
-    s.push('{');
-    s.push_str(&format!(
-        "\"rows\":{},\"cols\":{},\"created_at\":{},\"circles\":[",
-        rows, cols, created_at
-    ));
-    for (i, &(r, c)) in circles.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str(&format!("[{},{}]", r, c));
-    }
-    s.push_str("],\"crosses\":[");
-    for (i, &(r, c)) in crosses.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str(&format!("[{},{}]", r, c));
-    }
-    s.push_str("],\"removed\":[");
-    for (i, &(r, c)) in removed.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push_str(&format!("[{},{}]", r, c));
-    }
-    s.push_str(",\"player\":");
-    if let Some((r, c)) = player {
-        s.push_str(&format!("[{},{}]", r, c));
+    // Build a serde_json object to avoid manual string concatenation bugs.
+    let circles_json: Vec<serde_json::Value> = circles
+        .iter()
+        .map(|&(r, c)| serde_json::json!([r, c]))
+        .collect();
+    let crosses_json: Vec<serde_json::Value> = crosses
+        .iter()
+        .map(|&(r, c)| serde_json::json!([r, c]))
+        .collect();
+    let removed_json: Vec<serde_json::Value> = removed
+        .iter()
+        .map(|&(r, c)| serde_json::json!([r, c]))
+        .collect();
+    let player_json = if let Some((r, c)) = player {
+        serde_json::json!([r, c])
     } else {
-        s.push_str("null");
-    }
-    s.push_str("}");
-    s
+        serde_json::Value::Null
+    };
+
+    let obj = serde_json::json!({
+        "rows": rows,
+        "cols": cols,
+        "created_at": created_at,
+        "circles": circles_json,
+        "crosses": crosses_json,
+        "removed": removed_json,
+        "player": player_json
+    });
+
+    serde_json::to_string(&obj).unwrap_or_default()
 }
 
 fn save_puzzle_to_file(json: &str, created_at: u64) -> Result<PathBuf, Box<dyn std::error::Error>> {
