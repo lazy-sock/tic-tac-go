@@ -2,6 +2,31 @@ use std::error::Error;
 use std::env;
 use dotenvy::dotenv;
 
+// Prefer a compile-time embedded SUPABASE_ANON_KEY when available. This allows
+// shipping the anon key inside the binary so users don't need to set env vars.
+// To embed the key at build time, set the env var when running cargo, for
+// example:
+//
+//   SUPABASE_ANON_KEY=your_anon_key cargo build --release
+//
+// or use a build script (build.rs) that emits:
+//   println!("cargo:rustc-env=SUPABASE_ANON_KEY={}", key);
+//
+// The compile-time key is preferred; otherwise, runtime .env or environment
+// variables SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY are
+// used. WARNING: Do NOT embed a service_role key into client binaries.
+fn get_supabase_key() -> Option<String> {
+    if let Some(k) = option_env!("SUPABASE_ANON_KEY") {
+        if !k.is_empty() {
+            return Some(k.to_string());
+        }
+    }
+    let _ = dotenv().ok();
+    env::var("SUPABASE_ANON_KEY").ok()
+        .or_else(|| env::var("SUPABASE_SERVICE_ROLE_KEY").ok())
+        .or_else(|| env::var("SUPABASE_KEY").ok())
+}
+
 use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use serde_json::Value;
@@ -16,9 +41,7 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
     let _ = dotenv().ok();
     let supabase_url = env::var("SUPABASE_URL")
         .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
-    let maybe_key = env::var("SUPABASE_ANON_KEY").ok()
-        .or_else(|| env::var("SUPABASE_SERVICE_ROLE_KEY").ok())
-        .or_else(|| env::var("SUPABASE_KEY").ok());
+    let maybe_key = get_supabase_key();
 
     let client = Client::new();
     let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
@@ -60,9 +83,7 @@ pub fn list_puzzles() -> Result<Vec<(String, Option<u64>)>, Box<dyn Error>> {
     let _ = dotenv().ok();
     let supabase_url = env::var("SUPABASE_URL")
         .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
-    let maybe_key = env::var("SUPABASE_ANON_KEY").ok()
-        .or_else(|| env::var("SUPABASE_SERVICE_ROLE_KEY").ok())
-        .or_else(|| env::var("SUPABASE_KEY").ok());
+    let maybe_key = get_supabase_key();
 
     let client = Client::new();
     let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
@@ -110,9 +131,7 @@ pub fn download(file_name: &str) -> Result<String, Box<dyn Error>> {
     let _ = dotenv().ok();
     let supabase_url = env::var("SUPABASE_URL")
         .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
-    let maybe_key = env::var("SUPABASE_ANON_KEY").ok()
-        .or_else(|| env::var("SUPABASE_SERVICE_ROLE_KEY").ok())
-        .or_else(|| env::var("SUPABASE_KEY").ok());
+    let maybe_key = get_supabase_key();
 
     let client = Client::new();
     let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
