@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::env;
+use dotenvy::dotenv;
 
 use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
@@ -12,6 +13,7 @@ use serde_json::Value;
 /// request will be attempted without authentication (requires your Supabase
 /// config to allow unauthenticated inserts).
 pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Error>> {
+    let _ = dotenv().ok();
     let supabase_url = env::var("SUPABASE_URL")
         .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
     let maybe_key = env::var("SUPABASE_ANON_KEY").ok()
@@ -57,6 +59,7 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
 /// Download a puzzle by file_name from Supabase puzzles table.
 /// Returns the content JSON as string.
 pub fn download(file_name: &str) -> Result<String, Box<dyn Error>> {
+    let _ = dotenv().ok();
     let supabase_url = env::var("SUPABASE_URL")
         .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
     let maybe_key = env::var("SUPABASE_ANON_KEY").ok()
