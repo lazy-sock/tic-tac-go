@@ -1,6 +1,6 @@
-use std::error::Error;
-use std::env;
 use dotenvy::dotenv;
+use std::env;
+use std::error::Error;
 
 // Prefer a compile-time embedded SUPABASE_ANON_KEY when available. This allows
 // shipping the anon key inside the binary so users don't need to set env vars.
@@ -22,9 +22,20 @@ fn get_supabase_key() -> Option<String> {
         }
     }
     let _ = dotenv().ok();
-    env::var("SUPABASE_ANON_KEY").ok()
+    env::var("SUPABASE_ANON_KEY")
+        .ok()
         .or_else(|| env::var("SUPABASE_SERVICE_ROLE_KEY").ok())
         .or_else(|| env::var("SUPABASE_KEY").ok())
+}
+
+fn get_supabase_url() -> Option<String> {
+    if let Some(k) = option_env!("SUPABASE_URL") {
+        if !k.is_empty() {
+            return Some(k.to_string());
+        }
+    }
+    let _ = dotenv().ok();
+    env::var("SUPABASE_URL").ok()
 }
 
 use reqwest::blocking::Client;
@@ -39,8 +50,7 @@ use serde_json::Value;
 /// config to allow unauthenticated inserts).
 pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Error>> {
     let _ = dotenv().ok();
-    let supabase_url = env::var("SUPABASE_URL")
-        .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
+    let supabase_url = get_supabase_url().unwrap_or(String::from("supabase url not found"));
     let maybe_key = get_supabase_key();
 
     let client = Client::new();
@@ -53,14 +63,17 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
         "content": parsed
     });
 
-    let mut req = client.post(&url)
+    let mut req = client
+        .post(&url)
         .header(ACCEPT, "application/json")
         .header(USER_AGENT, "tic-tac-go")
         .header("Prefer", "return=representation")
         .json(&body);
 
     if let Some(ref k) = maybe_key {
-        req = req.header("apikey", k.as_str()).header(AUTHORIZATION, format!("Bearer {}", k));
+        req = req
+            .header("apikey", k.as_str())
+            .header(AUTHORIZATION, format!("Bearer {}", k));
     }
 
     let resp = req.send()?;
@@ -88,13 +101,16 @@ pub fn list_puzzles() -> Result<Vec<(String, Option<u64>)>, Box<dyn Error>> {
     let client = Client::new();
     let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
 
-    let mut req = client.get(&url)
+    let mut req = client
+        .get(&url)
         .header(ACCEPT, "application/json")
         .header(USER_AGENT, "tic-tac-go")
         .query(&[("select", "file_name,created_at")]);
 
     if let Some(ref k) = maybe_key {
-        req = req.header("apikey", k.as_str()).header(AUTHORIZATION, format!("Bearer {}", k));
+        req = req
+            .header("apikey", k.as_str())
+            .header(AUTHORIZATION, format!("Bearer {}", k));
     }
 
     let resp = req.send()?;
@@ -137,13 +153,16 @@ pub fn download(file_name: &str) -> Result<String, Box<dyn Error>> {
     let url = format!("{}/rest/v1/puzzles", supabase_url.trim_end_matches('/'));
     let query_file = format!("eq.{}", file_name);
 
-    let mut req = client.get(&url)
+    let mut req = client
+        .get(&url)
         .header(ACCEPT, "application/json")
         .header(USER_AGENT, "tic-tac-go")
         .query(&[("file_name", query_file.as_str()), ("select", "content")]);
 
     if let Some(ref k) = maybe_key {
-        req = req.header("apikey", k.as_str()).header(AUTHORIZATION, format!("Bearer {}", k));
+        req = req
+            .header("apikey", k.as_str())
+            .header(AUTHORIZATION, format!("Bearer {}", k));
     }
 
     let resp = req.send()?;
