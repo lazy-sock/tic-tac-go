@@ -451,16 +451,17 @@ pub fn show_browser(
                                 status_msg = Some("Download already in progress".to_string());
                             } else {
                                 let fname = remote_puzzles.get(selected_remote).map(|p| p.0.clone()).unwrap_or_default();
+                                let tfname = fname.clone();
                                 downloading = true;
                                 let tx = dl_tx.clone();
                                 thread::spawn(move || {
-                                    match crate::database::download(&fname) {
+                                    match crate::database::download(&tfname) {
                                         Ok(content) => {
                                             if serde_json::from_str::<serde_json::Value>(&content).is_err() {
-                                                let _ = tx.send(Err(format!("Downloaded content invalid JSON for '{}'", fname)));
+                                                let _ = tx.send(Err(format!("Downloaded content invalid JSON for '{}'", tfname)));
                                                 return;
                                             }
-                                            let safe = std::path::Path::new(&fname).file_name().and_then(|s| s.to_str()).unwrap_or(&fname).to_string().replace("/", "_");
+                                            let safe = std::path::Path::new(&tfname).file_name().and_then(|s| s.to_str()).unwrap_or(&tfname).to_string().replace("/", "_");
                                             let dir = std::path::Path::new("puzzles");
                                             let _ = std::fs::create_dir_all(&dir);
                                             let mut path = dir.join(&safe);
@@ -473,15 +474,15 @@ pub fn show_browser(
                                             }
                                             match std::fs::write(&path, content) {
                                                 Ok(()) => {
-                                                    let _ = tx.send(Ok((path.to_string_lossy().to_string(), fname)));
+                                                    let _ = tx.send(Ok((path.to_string_lossy().to_string(), tfname.clone())));
                                                 }
                                                 Err(e) => {
-                                                    let _ = tx.send(Err(format!("Failed to save {}: {}", fname, e)));
+                                                    let _ = tx.send(Err(format!("Failed to save {}: {}", tfname, e)));
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            let _ = tx.send(Err(format!("Download failed for {}: {}", fname, e)));
+                                            let _ = tx.send(Err(format!("Download failed for {}: {}", tfname, e)));
                                         }
                                     }
                                 });
