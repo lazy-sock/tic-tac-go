@@ -1,6 +1,3 @@
-use rand::seq::SliceRandom;
-use rand::thread_rng;
-use std::env;
 use std::error::Error;
 use std::io::{self};
 
@@ -14,65 +11,55 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 mod board;
+mod browser;
+mod database;
 mod game;
 mod generator;
 mod movement;
+mod puzzle_editor;
 mod rules;
+mod solver;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Setup terminal
-    let chosen_difficulty = {
-        // parse CLI args for -d / --difficulty; if absent, pick random
-        let mut args = env::args().skip(1);
-        let mut parsed: Option<crate::generator::Difficulty> = None;
-        while let Some(arg) = args.next() {
-            if arg == "-d" || arg == "--difficulty" {
-                if let Some(val) = args.next() {
-                    parsed = match val.to_lowercase().as_str() {
-                        "easy" => Some(crate::generator::Difficulty::Easy),
-                        "medium" => Some(crate::generator::Difficulty::Medium),
-                        "hard" => Some(crate::generator::Difficulty::Hard),
-                        _ => {
-                            eprintln!("unknown difficulty: {}", val);
-                            None
-                        }
-                    };
-                    break;
-                }
-            } else if arg.starts_with("--difficulty=") || arg.starts_with("-d=") {
-                let val = arg.split_once('=').unwrap().1;
-                parsed = match val.to_lowercase().as_str() {
-                    "easy" => Some(crate::generator::Difficulty::Easy),
-                    "medium" => Some(crate::generator::Difficulty::Medium),
-                    "hard" => Some(crate::generator::Difficulty::Hard),
-                    _ => {
-                        eprintln!("unknown difficulty: {}", val);
-                        None
-                    }
-                };
-                break;
-            }
-        }
-        if let Some(d) = parsed {
-            d
-        } else {
-            let mut rng = thread_rng();
-            *[
-                crate::generator::Difficulty::Easy,
-                crate::generator::Difficulty::Medium,
-                crate::generator::Difficulty::Hard,
-            ]
-            .choose(&mut rng)
-            .unwrap()
-        }
-    };
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let res = game::run_app(&mut terminal, chosen_difficulty);
+    // Show main menu to select mode (play or create). If user quits, exit gracefully.
+    let res = match game::select_mode(&mut terminal) {
+        Ok(game::StartupMode::Play(d)) => game::run_app(&mut terminal, d),
+        Ok(game::StartupMode::Create) => {
+            // show placeholder for create puzzle, then restore and exit
+            puzzle_editor::show_create_placeholder(&mut terminal)?;
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+            terminal.show_cursor()?;
+            Ok(())
+        }
+        Ok(game::StartupMode::Browse) => {
+            browser::show_browser(&mut terminal)?;
+            Ok(())
+        }
+        Err(_) => {
+            // Restore terminal and exit without running the game
+            disable_raw_mode()?;
+            execute!(
+                terminal.backend_mut(),
+                LeaveAlternateScreen,
+                DisableMouseCapture
+            )?;
+            terminal.show_cursor()?;
+            return Ok(());
+        }
+    };
 
     // Restore terminal
     disable_raw_mode()?;
