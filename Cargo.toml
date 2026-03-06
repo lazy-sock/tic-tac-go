@@ -2,6 +2,7 @@
 name = "tic-tac-go"
 version = "0.1.0"
 edition = "2024"
+description = "a ratatui app made for playing and creating tic-tac-go puzzles."
 
 [dependencies]
 # Terminal UI
