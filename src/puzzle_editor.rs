@@ -1,6 +1,7 @@
 use crate::CrosstermBackend;
 use crate::Error;
 use crate::Terminal;
+use crate::browser;
 use crate::io::Stdout;
 use crate::puzzle_editor::event::Event;
 use crossterm::event;
@@ -169,12 +170,16 @@ pub fn show_create_placeholder(
                 let mut ok_lines: Vec<Spans> = Vec::new();
                 ok_lines.push(Spans::from(Span::styled(
                     " Saved ",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 ok_lines.push(Spans::from(Span::raw("")));
                 ok_lines.push(Spans::from(Span::raw(msg.as_str())));
                 ok_lines.push(Spans::from(Span::raw("")));
-                ok_lines.push(Spans::from(Span::raw("Press any key to return to home screen")));
+                ok_lines.push(Spans::from(Span::raw(
+                    "Press any key to return to home screen",
+                )));
                 let ok_para = Paragraph::new(ok_lines)
                     .alignment(Alignment::Center)
                     .block(Block::default().borders(Borders::ALL).title("Saved"));
@@ -199,16 +204,27 @@ pub fn show_create_placeholder(
                     | KeyCode::Char('O')
                     | KeyCode::Char('x')
                     | KeyCode::Char('X')
-                    | KeyCode::Backspace => {
-                        edit_cell(key.code, &cursor, &mut circles, &mut crosses, &mut removed, &mut player)
-                    }
+                    | KeyCode::Backspace => edit_cell(
+                        key.code,
+                        &cursor,
+                        &mut circles,
+                        &mut crosses,
+                        &mut removed,
+                        &mut player,
+                    ),
                     KeyCode::Char('+') | KeyCode::Char('=') => {
                         // Increase matrix size (append to bottom/right)
                         increase_preview(&mut preview);
                     }
                     KeyCode::Char('-') => {
                         // Decrease matrix size and drop any marks that fall outside
-                        decrease_preview(&mut preview, &mut circles, &mut crosses, &mut removed, &mut player);
+                        decrease_preview(
+                            &mut preview,
+                            &mut circles,
+                            &mut crosses,
+                            &mut removed,
+                            &mut player,
+                        );
                         // Ensure cursor remains within bounds
                         if let Some(pos) = cursor.get_mut(0) {
                             pos.0 = std::cmp::min(pos.0, preview.0.saturating_sub(1));
@@ -226,24 +242,30 @@ pub fn show_create_placeholder(
                     KeyCode::Enter => {
                         // Validate circle count before saving
                         if circles.len() != 3 {
-                            error_msg = Some(format!("Puzzle must contain exactly 3 circles; found {}.", circles.len()));
+                            error_msg = Some(format!(
+                                "Puzzle must contain exactly 3 circles; found {}.",
+                                circles.len()
+                            ));
                         } else {
                             // Serialize and save puzzle as JSON
                             let now = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_secs();
-                            let json =
-                                puzzle_to_json(preview.0, preview.1, &circles, &crosses, &removed, player, now);
+                            let json = puzzle_to_json(
+                                preview.0, preview.1, &circles, &crosses, &removed, player, now,
+                            );
                             match save_puzzle_to_file(&json, now) {
                                 Ok(path) => {
-                                    success_msg = Some(format!("Saved puzzle to {}", path.display()));
+                                    success_msg =
+                                        Some(format!("Saved puzzle to {}", path.display()));
                                 }
                                 Err(e) => {
                                     error_msg = Some(format!("Failed to save puzzle: {}", e));
                                 }
                             }
                         }
+                        browser::show_browser(terminal);
                     }
                     KeyCode::Char('r') | KeyCode::Char('R') => {
                         // Restore all removed cells
@@ -420,7 +442,9 @@ fn create_matrix(
                     if is_player {
                         content_spans.push(Span::styled(
                             "o".to_string(),
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
                         ));
                     } else {
                         content_spans.push(Span::styled(
