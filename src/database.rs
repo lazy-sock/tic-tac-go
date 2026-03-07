@@ -50,7 +50,8 @@ use serde_json::Value;
 /// config to allow unauthenticated inserts).
 pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Error>> {
     let _ = dotenv().ok();
-    let supabase_url = get_supabase_url().unwrap_or(String::from("supabase url not found"));
+    let supabase_url = get_supabase_url()
+        .ok_or("SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
     let maybe_key = get_supabase_key();
 
     let client = Client::new();
@@ -94,8 +95,8 @@ pub fn upload(file_name: &str, json_content: &str) -> Result<String, Box<dyn Err
 
 pub fn list_puzzles() -> Result<Vec<(String, Option<u64>)>, Box<dyn Error>> {
     let _ = dotenv().ok();
-    let supabase_url = env::var("SUPABASE_URL")
-        .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
+    let supabase_url = get_supabase_url()
+        .ok_or("SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
     let maybe_key = get_supabase_key();
 
     let client = Client::new();
@@ -145,8 +146,8 @@ pub fn list_puzzles() -> Result<Vec<(String, Option<u64>)>, Box<dyn Error>> {
 /// Returns the content JSON as string.
 pub fn download(file_name: &str) -> Result<String, Box<dyn Error>> {
     let _ = dotenv().ok();
-    let supabase_url = env::var("SUPABASE_URL")
-        .map_err(|_| "SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
+    let supabase_url = get_supabase_url()
+        .ok_or("SUPABASE_URL not set; set SUPABASE_URL to your Supabase project URL")?;
     let maybe_key = get_supabase_key();
 
     let client = Client::new();
