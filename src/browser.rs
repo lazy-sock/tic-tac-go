@@ -1,4 +1,12 @@
-use std::{error::Error, fs, io::Stdout, path::PathBuf, sync::mpsc, thread, time::{Duration, SystemTime}};
+use std::{
+    error::Error,
+    fs,
+    io::Stdout,
+    path::PathBuf,
+    sync::mpsc,
+    thread,
+    time::{Duration, SystemTime},
+};
 
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::{
@@ -7,10 +15,13 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Paragraph, Clear, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use crate::{board::Board, database::{upload, download, list_puzzles}};
+use crate::{
+    board::Board,
+    database::{download, list_puzzles, upload},
+};
 
 struct PuzzleItem {
     path: PathBuf,
@@ -341,7 +352,9 @@ pub fn show_browser(
                 } else {
                     for (i, p) in puzzles.iter().enumerate() {
                         let label = match p.created_at {
-                            Some(ts) => format!("{}  —  {}x{}  —  {}", p.file_name, p.rows, p.cols, ts),
+                            Some(ts) => {
+                                format!("{}  —  {}x{}  —  {}", p.file_name, p.rows, p.cols, ts)
+                            }
                             None => format!("{}  —  {}x{}", p.file_name, p.rows, p.cols),
                         };
                         if i == selected {
@@ -359,7 +372,9 @@ pub fn show_browser(
                     if fetching_remote {
                         lines.push(Spans::from(Span::raw("Fetching remote puzzles...")));
                     } else {
-                        lines.push(Spans::from(Span::raw("No remote puzzles. Press g to refresh.")));
+                        lines.push(Spans::from(Span::raw(
+                            "No remote puzzles. Press g to refresh.",
+                        )));
                     }
                 } else {
                     for (i, p) in remote_puzzles.iter().enumerate() {
@@ -404,7 +419,10 @@ pub fn show_browser(
                 modal_lines.push(Spans::from(Span::raw(rename_input.clone())));
                 modal_lines.push(Spans::from(Span::raw("")));
                 modal_lines.push(Spans::from(Span::raw("Enter = confirm, Esc = cancel")));
-                let eh = std::cmp::min((modal_lines.len() as u16) + 4, size.height.saturating_sub(4));
+                let eh = std::cmp::min(
+                    (modal_lines.len() as u16) + 4,
+                    size.height.saturating_sub(4),
+                );
                 let ex = (size.width.saturating_sub(ew)) / 2;
                 let ey = (size.height.saturating_sub(eh)) / 2;
                 let earea = Rect::new(ex, ey, ew, eh);
@@ -422,12 +440,19 @@ pub fn show_browser(
                 let mut lines2: Vec<Spans> = Vec::new();
                 lines2.push(Spans::from(Span::styled(
                     " Confirm rename ",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 lines2.push(Spans::from(Span::raw("")));
-                lines2.push(Spans::from(Span::raw(format!("Target '{}' already exists.", desired_name))));
+                lines2.push(Spans::from(Span::raw(format!(
+                    "Target '{}' already exists.",
+                    desired_name
+                ))));
                 lines2.push(Spans::from(Span::raw("")));
-                lines2.push(Spans::from(Span::raw("Y = Overwrite, A = Auto-rename, Esc = Cancel")));
+                lines2.push(Spans::from(Span::raw(
+                    "Y = Overwrite, A = Auto-rename, Esc = Cancel",
+                )));
                 let eh = std::cmp::min((lines2.len() as u16) + 4, size.height.saturating_sub(4));
                 let ex = (size.width.saturating_sub(ew)) / 2;
                 let ey = (size.height.saturating_sub(eh)) / 2;
@@ -450,7 +475,10 @@ pub fn show_browser(
                 )));
                 err_lines.push(Spans::from(Span::raw("")));
                 for line in err.lines() {
-                    err_lines.push(Spans::from(Span::styled(line, Style::default().fg(Color::Red))));
+                    err_lines.push(Spans::from(Span::styled(
+                        line,
+                        Style::default().fg(Color::Red),
+                    )));
                 }
                 err_lines.push(Spans::from(Span::raw("")));
                 err_lines.push(Spans::from(Span::raw("Press any key to close")));
@@ -467,325 +495,396 @@ pub fn show_browser(
             }
         })?;
 
-        if event::poll(Duration::from_millis(150))? {
-            if let Event::Key(key) = event::read()? {
-                // Prioritize rename confirm -> rename input -> error popup -> normal handlers
-                if rename_confirm_prompt.is_some() {
-                    match key.code {
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            if let Some((orig_path, desired_name)) = rename_confirm_prompt.take() {
-                                let dir = std::path::Path::new("puzzles");
-                                let new_path = dir.join(&desired_name);
-                                if new_path.exists() {
-                                    if let Err(e) = fs::remove_file(&new_path) {
-                                        error_popup = Some(format!("Failed to remove existing {}: {}", desired_name, e));
-                                        continue;
-                                    }
+        if event::poll(Duration::from_millis(150))?
+            && let Event::Key(key) = event::read()?
+        {
+            // Prioritize rename confirm -> rename input -> error popup -> normal handlers
+            if rename_confirm_prompt.is_some() {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        if let Some((orig_path, desired_name)) = rename_confirm_prompt.take() {
+                            let dir = std::path::Path::new("puzzles");
+                            let new_path = dir.join(&desired_name);
+                            if new_path.exists()
+                                && let Err(e) = fs::remove_file(&new_path)
+                            {
+                                error_popup = Some(format!(
+                                    "Failed to remove existing {}: {}",
+                                    desired_name, e
+                                ));
+                                continue;
+                            }
+                            match fs::rename(&orig_path, &new_path) {
+                                Ok(()) => {
+                                    puzzles = read_puzzles();
+                                    selected = puzzles
+                                        .iter()
+                                        .position(|p| p.file_name == desired_name)
+                                        .unwrap_or(0);
+                                    status_msg = Some(format!("Renamed to {}", desired_name));
                                 }
-                                match fs::rename(&orig_path, &new_path) {
-                                    Ok(()) => {
-                                        puzzles = read_puzzles();
-                                        selected = puzzles.iter().position(|p| p.file_name == desired_name).unwrap_or(0);
-                                        status_msg = Some(format!("Renamed to {}", desired_name));
-                                    }
-                                    Err(e) => {
-                                        error_popup = Some(format!("Rename failed: {}", e));
-                                    }
+                                Err(e) => {
+                                    error_popup = Some(format!("Rename failed: {}", e));
                                 }
                             }
                         }
-                        KeyCode::Char('a') | KeyCode::Char('A') => {
-                            if let Some((orig_path, desired_name)) = rename_confirm_prompt.take() {
-                                let safe = std::path::Path::new(&desired_name)
-                                    .file_name()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or(&desired_name)
-                                    .to_string()
-                                    .replace("/", "_");
-                                let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
-                                let stem = std::path::Path::new(&safe).file_stem().and_then(|s| s.to_str()).unwrap_or("puzzle");
-                                let ext = std::path::Path::new(&safe).extension().and_then(|s| s.to_str()).unwrap_or("json");
-                                let newname = format!("{}-rename-{}.{}", stem, now, ext);
-                                let dir = std::path::Path::new("puzzles");
-                                let new_path = dir.join(&newname);
-                                match fs::rename(&orig_path, &new_path) {
-                                    Ok(()) => {
-                                        puzzles = read_puzzles();
-                                        selected = puzzles.iter().position(|p| p.file_name == newname).unwrap_or(0);
-                                        status_msg = Some(format!("Renamed to {}", newname));
-                                    }
-                                    Err(e) => {
-                                        error_popup = Some(format!("Rename failed: {}", e));
-                                    }
-                                }
-                            }
-                        }
-                        KeyCode::Esc => {
-                            rename_confirm_prompt = None;
-                        }
-                        _ => {}
                     }
-                } else if rename_mode {
-                    match key.code {
-                        KeyCode::Esc => {
-                            rename_mode = false;
-                            rename_target_idx = None;
-                            rename_input.clear();
+                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                        if let Some((orig_path, desired_name)) = rename_confirm_prompt.take() {
+                            let safe = std::path::Path::new(&desired_name)
+                                .file_name()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or(&desired_name)
+                                .to_string()
+                                .replace("/", "_");
+                            let now = SystemTime::now()
+                                .duration_since(SystemTime::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
+                            let stem = std::path::Path::new(&safe)
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("puzzle");
+                            let ext = std::path::Path::new(&safe)
+                                .extension()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("json");
+                            let newname = format!("{}-rename-{}.{}", stem, now, ext);
+                            let dir = std::path::Path::new("puzzles");
+                            let new_path = dir.join(&newname);
+                            match fs::rename(&orig_path, &new_path) {
+                                Ok(()) => {
+                                    puzzles = read_puzzles();
+                                    selected = puzzles
+                                        .iter()
+                                        .position(|p| p.file_name == newname)
+                                        .unwrap_or(0);
+                                    status_msg = Some(format!("Renamed to {}", newname));
+                                }
+                                Err(e) => {
+                                    error_popup = Some(format!("Rename failed: {}", e));
+                                }
+                            }
                         }
-                        KeyCode::Backspace => {
-                            rename_input.pop();
-                        }
-                        KeyCode::Char(c) => {
-                            rename_input.push(c);
-                        }
-                        KeyCode::Enter => {
-                            if let Some(idx) = rename_target_idx {
-                                if let Some(p) = puzzles.get(idx) {
-                                    let orig_path = p.path.clone();
-                                    let orig_name = p.file_name.clone();
-                                    let mut new_name = rename_input.trim().replace("/", "_").replace("\\", "_").to_string();
-                                    if new_name.is_empty() {
-                                        error_popup = Some("Invalid file name".to_string());
+                    }
+                    KeyCode::Esc => {
+                        rename_confirm_prompt = None;
+                    }
+                    _ => {}
+                }
+            } else if rename_mode {
+                match key.code {
+                    KeyCode::Esc => {
+                        rename_mode = false;
+                        rename_target_idx = None;
+                        rename_input.clear();
+                    }
+                    KeyCode::Backspace => {
+                        rename_input.pop();
+                    }
+                    KeyCode::Char(c) => {
+                        rename_input.push(c);
+                    }
+                    KeyCode::Enter => {
+                        if let Some(idx) = rename_target_idx {
+                            if let Some(p) = puzzles.get(idx) {
+                                let orig_path = p.path.clone();
+                                let orig_name = p.file_name.clone();
+                                let mut new_name = rename_input
+                                    .trim()
+                                    .replace("/", "_")
+                                    .replace("\\", "_")
+                                    .to_string();
+                                if new_name.is_empty() {
+                                    error_popup = Some("Invalid file name".to_string());
+                                } else {
+                                    if !new_name.to_lowercase().ends_with(".json") {
+                                        new_name = format!("{}.json", new_name);
+                                    }
+                                    if new_name == orig_name {
+                                        status_msg = Some("Name unchanged".to_string());
                                     } else {
-                                        if !new_name.to_lowercase().ends_with(".json") {
-                                            new_name = format!("{}.json", new_name);
-                                        }
-                                        if new_name == orig_name {
-                                            status_msg = Some("Name unchanged".to_string());
+                                        let dir = std::path::Path::new("puzzles");
+                                        let new_path = dir.join(&new_name);
+                                        if new_path.exists() {
+                                            rename_confirm_prompt = Some((orig_path, new_name));
                                         } else {
-                                            let dir = std::path::Path::new("puzzles");
-                                            let new_path = dir.join(&new_name);
-                                            if new_path.exists() {
-                                                rename_confirm_prompt = Some((orig_path, new_name));
-                                            } else {
-                                                match fs::rename(&orig_path, &new_path) {
-                                                    Ok(()) => {
-                                                        puzzles = read_puzzles();
-                                                        selected = puzzles.iter().position(|p| p.file_name == new_name).unwrap_or(0);
-                                                        status_msg = Some(format!("Renamed {} -> {}", orig_name, new_name));
-                                                    }
-                                                    Err(e) => {
-                                                        error_popup = Some(format!("Rename failed: {}", e));
-                                                    }
+                                            match fs::rename(&orig_path, &new_path) {
+                                                Ok(()) => {
+                                                    puzzles = read_puzzles();
+                                                    selected = puzzles
+                                                        .iter()
+                                                        .position(|p| p.file_name == new_name)
+                                                        .unwrap_or(0);
+                                                    status_msg = Some(format!(
+                                                        "Renamed {} -> {}",
+                                                        orig_name, new_name
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    error_popup =
+                                                        Some(format!("Rename failed: {}", e));
                                                 }
                                             }
                                         }
-                                        rename_mode = false;
-                                        rename_target_idx = None;
-                                        rename_input.clear();
                                     }
-                                } else {
                                     rename_mode = false;
                                     rename_target_idx = None;
                                     rename_input.clear();
                                 }
                             } else {
                                 rename_mode = false;
+                                rename_target_idx = None;
                                 rename_input.clear();
                             }
+                        } else {
+                            rename_mode = false;
+                            rename_input.clear();
                         }
-                        _ => {}
                     }
-                } else if error_popup.is_some() {
-                    // close error popup on any key press
-                    error_popup = None;
-                } else {
-                    match key.code {
-                        KeyCode::Char('t') => {
-                            remote_mode = !remote_mode;
-                            if remote_mode && remote_puzzles.is_empty() {
-                                fetching_remote = true;
-                                let tx = list_tx.clone();
-                                thread::spawn(move || {
-                                    match crate::database::list_puzzles() {
-                                        Ok(list) => { let _ = tx.send(Ok(list)); },
-                                        Err(e) => { let _ = tx.send(Err(format!("{}", e))); }
-                                    }
-                                });
-                            }
-                            status_msg = Some(if remote_mode { "Switched to remote view".to_string() } else { "Switched to local view".to_string() });
-                        }
-                        KeyCode::Char('g') => {
-                            if remote_mode {
-                                fetching_remote = true;
-                                let tx = list_tx.clone();
-                                thread::spawn(move || {
-                                    match crate::database::list_puzzles() {
-                                        Ok(list) => { let _ = tx.send(Ok(list)); },
-                                        Err(e) => { let _ = tx.send(Err(format!("{}", e))); }
-                                    }
-                                });
-                                status_msg = Some("Refreshing remote list".to_string());
-                            }
-                        }
-                        KeyCode::Char('i') | KeyCode::Enter if remote_mode => {
-                            if remote_puzzles.is_empty() {
-                                status_msg = Some("No remote puzzle to import".to_string());
-                            } else if downloading {
-                                status_msg = Some("Download already in progress".to_string());
-                            } else {
-                                let fname = remote_puzzles.get(selected_remote).map(|p| p.0.clone()).unwrap_or_default();
-                                let tfname = fname.clone();
-                                downloading = true;
-                                let tx = dl_tx.clone();
-                                thread::spawn(move || {
-                                    match crate::database::download(&tfname) {
-                                        Ok(content) => {
-                                            if serde_json::from_str::<serde_json::Value>(&content).is_err() {
-                                                let _ = tx.send(Err(format!("Downloaded content invalid JSON for '{}'", tfname)));
-                                                return;
-                                            }
-                                            let safe = std::path::Path::new(&tfname).file_name().and_then(|s| s.to_str()).unwrap_or(&tfname).to_string().replace("/", "_");
-                                            let dir = std::path::Path::new("puzzles");
-                                            let _ = std::fs::create_dir_all(&dir);
-                                            let mut path = dir.join(&safe);
-                                            if path.exists() {
-                                                let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
-                                                let stem = std::path::Path::new(&safe).file_stem().and_then(|s| s.to_str()).unwrap_or("puzzle");
-                                                let ext = std::path::Path::new(&safe).extension().and_then(|s| s.to_str()).unwrap_or("json");
-                                                let newname = format!("{}-import-{}.{}", stem, now, ext);
-                                                path = dir.join(newname);
-                                            }
-                                            match std::fs::write(&path, content) {
-                                                Ok(()) => {
-                                                    let _ = tx.send(Ok((path.to_string_lossy().to_string(), tfname.clone())));
-                                                }
-                                                Err(e) => {
-                                                    let _ = tx.send(Err(format!("Failed to save {}: {}", tfname, e)));
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let _ = tx.send(Err(format!("Download failed for {}: {}", tfname, e)));
-                                        }
-                                    }
-                                });
-                                status_msg = Some(format!("Importing {}", fname));
-                            }
-                        }
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Char('r') if !remote_mode => {
-                            if !puzzles.is_empty() {
-                                if let Some(p) = puzzles.get(selected) {
-                                    rename_mode = true;
-                                    rename_input = p.file_name.clone();
-                                    rename_target_idx = Some(selected);
-                                    status_msg = Some("Rename: edit name and press Enter to confirm".to_string());
+                    _ => {}
+                }
+            } else if error_popup.is_some() {
+                // close error popup on any key press
+                error_popup = None;
+            } else {
+                match key.code {
+                    KeyCode::Char('t') => {
+                        remote_mode = !remote_mode;
+                        if remote_mode && remote_puzzles.is_empty() {
+                            fetching_remote = true;
+                            let tx = list_tx.clone();
+                            thread::spawn(move || match crate::database::list_puzzles() {
+                                Ok(list) => {
+                                    let _ = tx.send(Ok(list));
                                 }
-                            }
+                                Err(e) => {
+                                    let _ = tx.send(Err(format!("{}", e)));
+                                }
+                            });
                         }
-                        KeyCode::Char('d') if !remote_mode => {
-                            if !puzzles.is_empty() {
-                                if let Some(p) = puzzles.get(selected) {
-                                    let file_name = p.file_name.clone();
-                                    let path = p.path.clone();
-                                    match fs::remove_file(&path) {
+                        status_msg = Some(if remote_mode {
+                            "Switched to remote view".to_string()
+                        } else {
+                            "Switched to local view".to_string()
+                        });
+                    }
+                    KeyCode::Char('g') => {
+                        if remote_mode {
+                            fetching_remote = true;
+                            let tx = list_tx.clone();
+                            thread::spawn(move || match crate::database::list_puzzles() {
+                                Ok(list) => {
+                                    let _ = tx.send(Ok(list));
+                                }
+                                Err(e) => {
+                                    let _ = tx.send(Err(format!("{}", e)));
+                                }
+                            });
+                            status_msg = Some("Refreshing remote list".to_string());
+                        }
+                    }
+                    KeyCode::Char('i') | KeyCode::Enter if remote_mode => {
+                        if remote_puzzles.is_empty() {
+                            status_msg = Some("No remote puzzle to import".to_string());
+                        } else if downloading {
+                            status_msg = Some("Download already in progress".to_string());
+                        } else {
+                            let fname = remote_puzzles
+                                .get(selected_remote)
+                                .map(|p| p.0.clone())
+                                .unwrap_or_default();
+                            let tfname = fname.clone();
+                            downloading = true;
+                            let tx = dl_tx.clone();
+                            thread::spawn(move || match crate::database::download(&tfname) {
+                                Ok(content) => {
+                                    if serde_json::from_str::<serde_json::Value>(&content).is_err()
+                                    {
+                                        let _ = tx.send(Err(format!(
+                                            "Downloaded content invalid JSON for '{}'",
+                                            tfname
+                                        )));
+                                        return;
+                                    }
+                                    let safe = std::path::Path::new(&tfname)
+                                        .file_name()
+                                        .and_then(|s| s.to_str())
+                                        .unwrap_or(&tfname)
+                                        .to_string()
+                                        .replace("/", "_");
+                                    let dir = std::path::Path::new("puzzles");
+                                    let _ = std::fs::create_dir_all(dir);
+                                    let mut path = dir.join(&safe);
+                                    if path.exists() {
+                                        let now = SystemTime::now()
+                                            .duration_since(SystemTime::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs();
+                                        let stem = std::path::Path::new(&safe)
+                                            .file_stem()
+                                            .and_then(|s| s.to_str())
+                                            .unwrap_or("puzzle");
+                                        let ext = std::path::Path::new(&safe)
+                                            .extension()
+                                            .and_then(|s| s.to_str())
+                                            .unwrap_or("json");
+                                        let newname = format!("{}-import-{}.{}", stem, now, ext);
+                                        path = dir.join(newname);
+                                    }
+                                    match std::fs::write(&path, content) {
                                         Ok(()) => {
-                                            status_msg = Some(format!("Deleted {}", file_name));
-                                            puzzles = read_puzzles();
-                                            if puzzles.is_empty() {
-                                                selected = 0;
-                                            } else if selected >= puzzles.len() {
-                                                selected = puzzles.len() - 1;
-                                            }
+                                            let _ = tx.send(Ok((
+                                                path.to_string_lossy().to_string(),
+                                                tfname.clone(),
+                                            )));
                                         }
                                         Err(e) => {
-                                            error_popup = Some(format!("Failed to delete {}: {}", file_name, e));
+                                            let _ = tx.send(Err(format!(
+                                                "Failed to save {}: {}",
+                                                tfname, e
+                                            )));
                                         }
                                     }
                                 }
-                            }
+                                Err(e) => {
+                                    let _ = tx.send(Err(format!(
+                                        "Download failed for {}: {}",
+                                        tfname, e
+                                    )));
+                                }
+                            });
+                            status_msg = Some(format!("Importing {}", fname));
                         }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if remote_mode {
-                                if selected_remote > 0 {
-                                    selected_remote -= 1;
-                                }
-                            } else {
-                                if selected > 0 {
-                                    selected -= 1;
-                                }
-                            }
+                    }
+                    KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                    KeyCode::Char('r') if !remote_mode => {
+                        if !puzzles.is_empty()
+                            && let Some(p) = puzzles.get(selected)
+                        {
+                            rename_mode = true;
+                            rename_input = p.file_name.clone();
+                            rename_target_idx = Some(selected);
+                            status_msg =
+                                Some("Rename: edit name and press Enter to confirm".to_string());
                         }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if remote_mode {
-                                if !remote_puzzles.is_empty() && selected_remote + 1 < remote_puzzles.len() {
-                                    selected_remote += 1;
-                                }
-                            } else {
-                                if !puzzles.is_empty() && selected + 1 < puzzles.len() {
-                                    selected += 1;
-                                }
-                            }
-                        }
-                        KeyCode::Enter if !remote_mode => {
-                            if !puzzles.is_empty() {
-                                if let Some(p) = puzzles.get(selected) {
-                                    match load_puzzle_board(&p.path) {
-                                        Ok((
-                                            board,
-                                            circles,
-                                            crosses,
-                                            _removed,
-                                            player,
-                                            _created_at,
-                                        )) => {
-                                            // determine player index (if player marked, find its index among circles)
-                                            let player_idx = if let Some(player_pos) = player {
-                                                circles
-                                                    .iter()
-                                                    .position(|&p| p == player_pos)
-                                                    .unwrap_or(0usize)
-                                            } else {
-                                                if !circles.is_empty() { 0usize } else { 0usize }
-                                            };
-                                            if let Err(e) = crate::game::run_puzzle(
-                                                terminal, board, circles, crosses, player_idx,
-                                            ) {
-                                                eprintln!("Failed to run puzzle: {}", e);
-                                            }
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Failed to load puzzle: {}", e);
-                                        }
+                    }
+                    KeyCode::Char('d') if !remote_mode => {
+                        if !puzzles.is_empty()
+                            && let Some(p) = puzzles.get(selected)
+                        {
+                            let file_name = p.file_name.clone();
+                            let path = p.path.clone();
+                            match fs::remove_file(&path) {
+                                Ok(()) => {
+                                    status_msg = Some(format!("Deleted {}", file_name));
+                                    puzzles = read_puzzles();
+                                    if puzzles.is_empty() {
+                                        selected = 0;
+                                    } else if selected >= puzzles.len() {
+                                        selected = puzzles.len() - 1;
                                     }
                                 }
+                                Err(e) => {
+                                    error_popup =
+                                        Some(format!("Failed to delete {}: {}", file_name, e));
+                                }
                             }
-                            return Ok(());
                         }
-                        KeyCode::Char('u') if !remote_mode => {
-                            if puzzles.is_empty() {
-                                status_msg = Some("No puzzle to upload".to_string());
-                            } else if let Some(p) = puzzles.get(selected) {
-                                match fs::read_to_string(&p.path) {
-                                    Ok(json) => {
-                                        match upload(&p.file_name, &json) {
-                                            Ok(id) => {
-                                                if id.is_empty() {
-                                                    status_msg = Some(format!("Uploaded {}", p.file_name));
-                                                } else {
-                                                    status_msg = Some(format!("Uploaded {} (id {})", p.file_name, id));
-                                                }
-                                            }
-                                            Err(e) => {
-                                                error_popup = Some(format!("Upload failed: {}", e));
-                                            }
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if remote_mode {
+                            if selected_remote > 0 {
+                                selected_remote -= 1;
+                            }
+                        } else {
+                            if selected > 0 {
+                                selected -= 1;
+                            }
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if remote_mode {
+                            if !remote_puzzles.is_empty()
+                                && selected_remote + 1 < remote_puzzles.len()
+                            {
+                                selected_remote += 1;
+                            }
+                        } else {
+                            if !puzzles.is_empty() && selected + 1 < puzzles.len() {
+                                selected += 1;
+                            }
+                        }
+                    }
+                    KeyCode::Enter if !remote_mode => {
+                        if !puzzles.is_empty() {
+                            if let Some(p) = puzzles.get(selected) {
+                                match load_puzzle_board(&p.path) {
+                                    Ok((
+                                        board,
+                                        circles,
+                                        crosses,
+                                        _removed,
+                                        player,
+                                        _created_at,
+                                    )) => {
+                                        // determine player index (if player marked, find its index among circles)
+                                        let player_idx = if let Some(player_pos) = player {
+                                            circles
+                                                .iter()
+                                                .position(|&p| p == player_pos)
+                                                .unwrap_or(0usize)
+                                        } else {
+                                            if !circles.is_empty() { 0usize } else { 0usize }
+                                        };
+                                        if let Err(e) = crate::game::run_puzzle(
+                                            terminal, board, circles, crosses, player_idx,
+                                        ) {
+                                            eprintln!("Failed to run puzzle: {}", e);
                                         }
                                     }
                                     Err(e) => {
-                                        error_popup = Some(format!("Failed to read {}: {}", p.file_name, e));
+                                        eprintln!("Failed to load puzzle: {}", e);
                                     }
-                                }
-                                puzzles = read_puzzles();
-                                if puzzles.is_empty() {
-                                    selected = 0;
-                                } else if selected >= puzzles.len() {
-                                    selected = puzzles.len() - 1;
                                 }
                             }
                         }
-                        _ => {}
+                        return Ok(());
                     }
+                    KeyCode::Char('u') if !remote_mode => {
+                        if puzzles.is_empty() {
+                            status_msg = Some("No puzzle to upload".to_string());
+                        } else if let Some(p) = puzzles.get(selected) {
+                            match fs::read_to_string(&p.path) {
+                                Ok(json) => match upload(&p.file_name, &json) {
+                                    Ok(id) => {
+                                        if id.is_empty() {
+                                            status_msg = Some(format!("Uploaded {}", p.file_name));
+                                        } else {
+                                            status_msg = Some(format!(
+                                                "Uploaded {} (id {})",
+                                                p.file_name, id
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error_popup = Some(format!("Upload failed: {}", e));
+                                    }
+                                },
+                                Err(e) => {
+                                    error_popup =
+                                        Some(format!("Failed to read {}: {}", p.file_name, e));
+                                }
+                            }
+                            puzzles = read_puzzles();
+                            if puzzles.is_empty() {
+                                selected = 0;
+                            } else if selected >= puzzles.len() {
+                                selected = puzzles.len() - 1;
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
